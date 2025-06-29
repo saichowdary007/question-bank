@@ -1,0 +1,188 @@
+{
+  "exported_at": "2025-06-29T20:40:37.666308",
+  "total_questions": 13,
+  "questions": [
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "What are plants called when they use autotrophic nutrition?",
+      "options": [
+        "Plantos",
+        "Animals",
+        "Heterotrophs",
+        "Autotrophs"
+      ],
+      "answer": "Autotrophs",
+      "_id": "6861a37664833f5fde04b5a5"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "What is a unique process on Earth that captures solar energy and stores it in plants as food?",
+      "options": [
+        "Photosynthesis",
+        "Transportation",
+        "Respiration",
+        "Digestion"
+      ],
+      "answer": "Photosynthesis",
+      "_id": "6861a38d64833f5fde04b5a6"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "What is the distinct, centrally located structure in most cells called?",
+      "options": [
+        "Mitochondria",
+        "Nucleus",
+        "Endoplasmic reticulum",
+        "Ribosome"
+      ],
+      "answer": "Nucleus",
+      "_id": "6861a39e64833f5fde04b5a7"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "What is the jelly-like substance that surrounds the nucleus in a cell?",
+      "options": [
+        "Cell membrane",
+        "Cytoplasm",
+        "Chlorophyll",
+        "Mitochondria"
+      ],
+      "answer": "Cytoplasm",
+      "_id": "6861a3a864833f5fde04b5a8"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "What happens to the leaves of plants that Boojho observed with deep red, violet or brown colors?",
+      "options": [
+        "A) They stop carrying out photosynthesis",
+        "B) They start producing carbon dioxide instead of oxygen",
+        "C) They no longer have chlorophyll",
+        "D) Their starch levels decrease"
+      ],
+      "answer": "C",
+      "_id": "6861a3c164833f5fde04b5a9"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "What is the purpose of keeping one potted plant in the dark for 72 hours in Activity 1.1?",
+      "options": [
+        "A) To observe photosynthesis",
+        "B) To observe transpiration",
+        "C) To compare the effects of sunlight on different plants",
+        "D) To determine if leaves still contain starch"
+      ],
+      "answer": "A",
+      "_id": "6861a3ca64833f5fde04b5aa"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "How do some plants that do not have chlorophyll survive?",
+      "options": [
+        "A) By photosynthesis",
+        "B) By synthesising their own food",
+        "C) By deriving nutrition from other plants",
+        "D) By absorbing nitrogen in gaseous form"
+      ],
+      "answer": "C",
+      "_id": "6861a3d564833f5fde04b5ab"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "What is Cuscuta commonly referred to as?",
+      "options": [
+        "A. The parasite",
+        "B. The host",
+        "C. The insectivorous plant",
+        "D. The saprotroph"
+      ],
+      "answer": "A",
+      "_id": "6861a3fa64833f5fde04b5ac"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "Which of the following is an example of a modified leaf structure found in some plants?",
+      "options": [
+        "A. The pitcher",
+        "B. The host plant",
+        "C. Mushroom",
+        "D. The apex of the leaf forming a lid"
+      ],
+      "answer": "A",
+      "_id": "6861a41f64833f5fde04b5ad"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "What effect do fungi have on clothes and other articles during the rainy season?",
+      "options": [
+        "They protect the clothes from getting wet",
+        "They enhance the beauty of clothes",
+        "They spoil the clothes by growing on them",
+        "They improve the texture of clothes"
+      ],
+      "answer": "They spoil the clothes by growing on them",
+      "_id": "6861a44364833f5fde04b5ae"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "What are some examples of minerals and nutrients found in fertilizers and manures?",
+      "options": [
+        "Sulfur, iron, copper, zinc",
+        "Nitrogen, phosphorus, potassium, calcium",
+        "Carbon dioxide, water, sunlight, air",
+        "Magnesium, manganese, sodium, chlorine"
+      ],
+      "answer": "Nitrogen, phosphorus, potassium, calcium",
+      "_id": "6861a45364833f5fde04b5af"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "Which category of organisms synthesize their own food?",
+      "options": [
+        "A) Heterotrophs",
+        "B) Autotrophs",
+        "C) Saprotrophs",
+        "D) Parasites"
+      ],
+      "answer": "B",
+      "_id": "6861a47464833f5fde04b5b0"
+    },
+    {
+      "class": "7",
+      "subject": "Science",
+      "chapter": "Chapter1",
+      "question": "Fill in the blanks: 'The food synthesised by plants is stored as _________________.'",
+      "options": [
+        "Starch",
+        "Sugar",
+        "Carbohydrates",
+        "Proteins"
+      ],
+      "answer": "Starch",
+      "_id": "6861a4a864833f5fde04b5b1"
+    }
+  ]
+}

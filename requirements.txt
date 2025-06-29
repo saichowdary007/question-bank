@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+PyMuPDF
+requests
+pymongo
+sentence-transformers
+python-multipart
+aiohttp

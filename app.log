@@ -1,14 +1,20 @@
-2025-06-30 01:28:12,828 - INFO - ══════════════════════════ 🚀 STARTING PDF PROCESSING ═══════════════════════════
-2025-06-30 01:28:12,828 - INFO - 📁 Processing file: Copy of science class 7.pdf
-2025-06-30 01:28:12,828 - INFO - 📚 Class: 7 | Subject: Science | Chapter: Chapter 1
-2025-06-30 01:28:12,829 - INFO - ⏱️  File upload and save completed in 0.0s
-2025-06-30 01:28:12,829 - INFO - ───────────────────────── 📄 EXTRACTING PAGES FROM PDF ──────────────────────────
-2025-06-30 01:28:12,921 - INFO - ⏱️  Page extraction completed in 0.1s
-2025-06-30 01:28:12,921 - INFO - 📊 Extracted 10 pages from PDF
-2025-06-30 01:28:12,939 - INFO - 🗃️  Found 48 existing questions in database
-2025-06-30 01:28:12,939 - INFO - ──────────────────────── 🧠 GENERATING QUESTIONS WITH AI ────────────────────────
-2025-06-30 01:28:12,939 - INFO - ⚡ Starting concurrent processing with 4 workers
-2025-06-30 01:28:12,940 - INFO - 🔄 Processing page 1/10 - Requesting MCQs...
-2025-06-30 01:28:12,940 - INFO - 🔄 Processing page 2/10 - Requesting MCQs...
-2025-06-30 01:28:12,940 - INFO - 🔄 Processing page 3/10 - Requesting MCQs...
-2025-06-30 01:28:12,941 - INFO - 🔄 Processing page 4/10 - Requesting MCQs...
+2025-06-30 01:53:10,420 - INFO - ══════════════════════════ 🚀 STARTING PDF PROCESSING ═══════════════════════════
+2025-06-30 01:53:10,420 - INFO - 📁 Processing file: Copy of science class 7.pdf
+2025-06-30 01:53:10,420 - INFO - 📚 Class: 7 | Subject: Science | Chapter: Chapter 1
+2025-06-30 01:53:10,421 - INFO - ⏱️  File upload and save completed in 0.0s
+2025-06-30 01:53:10,421 - INFO - ───────────────────────── 📄 EXTRACTING PAGES FROM PDF ──────────────────────────
+2025-06-30 01:53:10,499 - INFO - ⏱️  Page extraction completed in 0.1s
+2025-06-30 01:53:10,499 - INFO - 📊 Extracted 10 pages from PDF
+2025-06-30 01:53:10,503 - INFO - 🗃️  Found 48 existing questions in database
+2025-06-30 01:53:10,503 - INFO - ──────────────────────── 🧠 GENERATING QUESTIONS WITH AI ────────────────────────
+2025-06-30 01:53:10,503 - INFO - ⚡ Starting concurrent processing with 4 workers
+2025-06-30 01:53:10,503 - INFO - 🔄 Processing page 1/10 - Requesting MCQs...
+2025-06-30 01:53:10,504 - INFO - 🔄 Processing page 2/10 - Requesting MCQs...
+2025-06-30 01:53:10,504 - INFO - 🔄 Processing page 3/10 - Requesting MCQs...
+2025-06-30 01:53:10,504 - INFO - 🔄 Processing page 4/10 - Requesting MCQs...
+2025-06-30 01:53:43,487 - INFO - ✅ Page 2 completed: 5 MCQs generated in 33.0s
+2025-06-30 01:53:43,487 - INFO - 📖 Pages processed: [████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 2/10 (20.0%)
+2025-06-30 01:53:43,487 - INFO - 🔄 Processing page 5/10 - Requesting MCQs...
+2025-06-30 01:53:48,042 - INFO - ✅ Page 1 completed: 5 MCQs generated in 37.5s
+2025-06-30 01:53:48,043 - INFO - 📖 Pages processed: [████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 1/10 (10.0%)
+2025-06-30 01:53:48,045 - INFO - 🔄 Processing page 6/10 - Requesting MCQs...

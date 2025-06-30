@@ -38,3 +38,8 @@ def export_questions_to_json(file_path: str = "questions.json"):
 
     with open(file_path, "w", encoding="utf-8") as fp:
         json.dump(payload, fp, indent=2, ensure_ascii=False)
+
+def delete_all_questions():
+    """Deletes all documents from the questions collection."""
+    result = collection.delete_many({})
+    return result.deleted_count

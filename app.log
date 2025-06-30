@@ -1,0 +1,14 @@
+2025-06-30 01:28:12,828 - INFO - ══════════════════════════ 🚀 STARTING PDF PROCESSING ═══════════════════════════
+2025-06-30 01:28:12,828 - INFO - 📁 Processing file: Copy of science class 7.pdf
+2025-06-30 01:28:12,828 - INFO - 📚 Class: 7 | Subject: Science | Chapter: Chapter 1
+2025-06-30 01:28:12,829 - INFO - ⏱️  File upload and save completed in 0.0s
+2025-06-30 01:28:12,829 - INFO - ───────────────────────── 📄 EXTRACTING PAGES FROM PDF ──────────────────────────
+2025-06-30 01:28:12,921 - INFO - ⏱️  Page extraction completed in 0.1s
+2025-06-30 01:28:12,921 - INFO - 📊 Extracted 10 pages from PDF
+2025-06-30 01:28:12,939 - INFO - 🗃️  Found 48 existing questions in database
+2025-06-30 01:28:12,939 - INFO - ──────────────────────── 🧠 GENERATING QUESTIONS WITH AI ────────────────────────
+2025-06-30 01:28:12,939 - INFO - ⚡ Starting concurrent processing with 4 workers
+2025-06-30 01:28:12,940 - INFO - 🔄 Processing page 1/10 - Requesting MCQs...
+2025-06-30 01:28:12,940 - INFO - 🔄 Processing page 2/10 - Requesting MCQs...
+2025-06-30 01:28:12,940 - INFO - 🔄 Processing page 3/10 - Requesting MCQs...
+2025-06-30 01:28:12,941 - INFO - 🔄 Processing page 4/10 - Requesting MCQs...

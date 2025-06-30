@@ -1,4 +1,6 @@
-from fastapi import FastAPI, File, UploadFile, Form, Request
+from fastapi import FastAPI, File, UploadFile, Form, Request, WebSocket
+from fastapi.responses import FileResponse
+from starlette.middleware.cors import CORSMiddleware
 import os, shutil, json, asyncio, re
 from pdf_utils import extract_pages_from_pdf
 from llm_ollama import call_ollama_mistral_async
@@ -7,13 +9,32 @@ from deduplication import is_similar
 import logging
 from datetime import datetime
 import time
-from typing import List
+from typing import List, Literal
 import signal
 import subprocess
 import threading
 from fastapi.responses import StreamingResponse
 
 app = FastAPI()
+
+# Global state for processing status
+ProcessingStatus = Literal["idle", "processing", "complete", "error"]
+processing_status: ProcessingStatus = "idle"
+
+origins = [
+    "http://localhost",
+    "http://localhost:3000",
+    "http://localhost:3003",  # Added to allow frontend on port 3003
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["Accept", "Accept-Encoding", "Content-Type", "Origin", "Authorization", "Cache-Control"],
+    expose_headers=["Content-Type", "Content-Length"]
+)
 
 CONCURRENT_REQUESTS = 4
 
@@ -90,6 +111,9 @@ def shutdown_all_servers():
     """Automatically shutdown all related server processes after completion."""
     logging.info("🔄 Initiating automatic server shutdown...")
     
+    # Get the current process group ID
+    current_pgid = os.getpgid(0)
+    
     # Kill related processes
     processes_to_kill = [
         "uvicorn",
@@ -100,9 +124,9 @@ def shutdown_all_servers():
     killed_count = 0
     for process_name in processes_to_kill:
         try:
-            # Use pkill to terminate processes
+            # Use pkill with SIGTERM and process group
             result = subprocess.run(
-                ["pkill", "-f", process_name], 
+                ["pkill", "-TERM", "-f", process_name], 
                 capture_output=True, 
                 text=True
             )
@@ -111,6 +135,11 @@ def shutdown_all_servers():
                 logging.info(f"✅ Stopped {process_name} processes")
             else:
                 logging.info(f"ℹ️  No {process_name} processes found")
+                
+            # Double-check with SIGKILL after a short delay
+            time.sleep(0.5)
+            subprocess.run(["pkill", "-KILL", "-f", process_name], capture_output=True)
+            
         except Exception as e:
             logging.warning(f"⚠️  Could not stop {process_name}: {e}")
     
@@ -118,6 +147,12 @@ def shutdown_all_servers():
         logging.info(f"🎯 Successfully stopped {killed_count} server processes")
     else:
         logging.info("ℹ️  No additional server processes to stop")
+    
+    # Ensure this process and its children are terminated
+    try:
+        os.killpg(current_pgid, signal.SIGTERM)
+    except:
+        os._exit(0)  # Force exit if killpg fails
 
 def delayed_shutdown():
     """Perform shutdown after a short delay to ensure response is sent."""
@@ -146,9 +181,15 @@ LOG_FILE_PATH = "app.log"
 async def stream_logs(request: Request):
     async def log_generator():
         last_position = 0
+        
+        # Create log file if it doesn't exist to prevent initial error
+        if not os.path.exists(LOG_FILE_PATH):
+            open(LOG_FILE_PATH, 'a').close()
+
         try:
             while True:
                 if await request.is_disconnected():
+                    logging.info("Client disconnected from log stream.")
                     break
                 
                 with open(LOG_FILE_PATH, 'r', encoding='utf-8') as f:
@@ -159,22 +200,41 @@ async def stream_logs(request: Request):
                 if new_content:
                     for line in new_content.strip().split('\n'):
                         if line.strip():
-                             log_match = re.match(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (\w+) - (.+)', line)
-                             if log_match:
-                                 timestamp, level, message = log_match.groups()
-                                 data = {
-                                     "type": "log",
-                                     "timestamp": timestamp,
-                                     "level": level,
-                                     "message": message.strip()
-                                 }
-                                 yield f"data: {json.dumps(data)}\n\n"
+                             # Send raw line to frontend for parsing
+                             data = {"line": line.strip()}
+                             yield f"data: {json.dumps(data)}\n\n"
                 
-                await asyncio.sleep(0.5)  # Poll every 500ms
+                await asyncio.sleep(0.5)
         except asyncio.CancelledError:
-            pass
+            logging.info("Log streaming cancelled by server.")
+        except Exception as e:
+            logging.error(f"Error in log stream generator: {e}")
 
-    return StreamingResponse(log_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        log_generator(), 
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+@app.get("/questions")
+async def get_questions():
+    file_path = "questions.json"
+    if os.path.exists(file_path):
+        return FileResponse(path=file_path, filename="questions.json", media_type='application/json')
+    return {"error": "questions.json not found"}
+
+@app.get("/processing-status")
+async def get_processing_status():
+    """Returns the current status of PDF processing."""
+    global processing_status
+    if processing_status == "complete" and not os.path.exists("questions.json"):
+        processing_status = "idle"
+    return {"status": processing_status}
 
 @app.post("/upload-pdf/")
 async def upload_pdf(
@@ -183,6 +243,9 @@ async def upload_pdf(
     subject: str = Form(...),
     chapter: str = Form(...)
 ):
+    global processing_status
+    processing_status = "processing"
+    
     overall_start_time = time.time()
     
     log_separator("🚀 STARTING PDF PROCESSING", "═")
@@ -347,12 +410,14 @@ Text:
     
     log_separator("", "═")
 
+    processing_status = "complete"
+
     # 🎯 NEW: Automatic shutdown after completion
-    logging.info("🚀 Initiating automatic shutdown sequence...")
+    # logging.info("🚀 Initiating automatic shutdown sequence...")
     
-    # Start shutdown in background thread to not block the HTTP response
-    shutdown_thread = threading.Thread(target=delayed_shutdown, daemon=True)
-    shutdown_thread.start()
+    # # Start shutdown in background thread to not block the HTTP response
+    # shutdown_thread = threading.Thread(target=delayed_shutdown, daemon=True)
+    # shutdown_thread.start()
 
     return {
         "status": "completed",
@@ -365,3 +430,38 @@ Text:
             "output_file": "questions.json"
         }
     }
+
+@app.websocket("/ws/logs")
+async def websocket_logs(websocket: WebSocket):
+    await websocket.accept()
+    last_position = 0
+    
+    try:
+        while True:
+            with open(LOG_FILE_PATH, 'r', encoding='utf-8') as f:
+                f.seek(last_position)
+                new_content = f.read()
+                last_position = f.tell()
+
+            if new_content:
+                for line in new_content.strip().split('\n'):
+                    if line.strip():
+                        log_match = re.match(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (\w+) - (.+)', line)
+                        if log_match:
+                            timestamp, level, message = log_match.groups()
+                            data = {
+                                "type": "log",
+                                "timestamp": timestamp,
+                                "level": level,
+                                "message": message.strip()
+                            }
+                            await websocket.send_json(data)
+            
+            await asyncio.sleep(0.5)  # Poll every 500ms
+    except Exception as e:
+        logging.error(f"WebSocket error: {e}")
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass

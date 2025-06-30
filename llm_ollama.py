@@ -1,9 +1,13 @@
 import requests
 import aiohttp
+import os
+
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "localhost")
+OLLAMA_URL = f"http://{OLLAMA_HOST}:11434/api/generate"
 
 def call_ollama_mistral(prompt: str):
     response = requests.post(
-        "http://localhost:11434/api/generate",
+        OLLAMA_URL,
         json={"model": "mistral", "prompt": prompt, "stream": False},
         timeout=30
     )
@@ -13,7 +17,7 @@ def call_ollama_mistral(prompt: str):
 async def call_ollama_mistral_async(prompt: str):
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            "http://localhost:11434/api/generate",
+            OLLAMA_URL,
             json={"model": "mistral", "prompt": prompt, "stream": False},
             timeout=120,  # Increased timeout for async calls
         ) as response:

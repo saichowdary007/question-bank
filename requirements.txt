@@ -6,3 +6,5 @@ pymongo
 sentence-transformers
 python-multipart
 aiohttp
+starlette
+rich

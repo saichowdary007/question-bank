@@ -83,7 +83,8 @@ def check_ollama():
     """Check if Ollama is running."""
     try:
         import requests
-        response = requests.get("http://localhost:11434/api/tags", timeout=5)
+        ollama_host = os.getenv("OLLAMA_HOST", "localhost")
+        response = requests.get(f"http://{ollama_host}:11434/api/tags", timeout=5)
         if response.status_code == 200:
             print(f"{Colors.OKGREEN}✅ Ollama is running and accessible{Colors.ENDC}")
             return True
@@ -96,45 +97,7 @@ def check_ollama():
 
 def print_startup_info():
     """Print beautiful startup information and instructions."""
-    print(f"\n{Colors.YELLOW}╔══════════════════════════════════════════════════════════════════════════════╗{Colors.RESET}")
-    print(f"{Colors.YELLOW}║{Colors.RESET}{Colors.BOLD}                     QUESTION BANK PROCESSOR SERVER                          {Colors.RESET}{Colors.YELLOW}║{Colors.RESET}")
-    print(f"{Colors.YELLOW}║{Colors.RESET}                            🚀 Ready to Process PDFs! 🚀                      {Colors.YELLOW}║{Colors.RESET}")
-    print(f"{Colors.YELLOW}╚══════════════════════════════════════════════════════════════════════════════╝{Colors.RESET}")
     
-    print(f"\n{Colors.GREEN}🌐 Server Information:{Colors.RESET}")
-    print(f"   📍 API URL: {Colors.CYAN}http://localhost:8000{Colors.RESET}")
-    print(f"   📖 Documentation: {Colors.CYAN}http://localhost:8000/docs{Colors.RESET}")
-    print(f"   🔧 Upload Endpoint: {Colors.CYAN}http://localhost:8000/upload-pdf/{Colors.RESET}")
-    
-    print(f"\n{Colors.GREEN}📊 Real-time Monitoring Options:{Colors.RESET}")
-    print(f"   🎯 {Colors.YELLOW}Option 1 (Recommended):{Colors.RESET} Open a new terminal and run:")
-    print(f"      {Colors.CYAN}python3 log_viewer.py{Colors.RESET}")
-    print(f"   📱 {Colors.YELLOW}Option 2:{Colors.RESET} For faster updates:")
-    print(f"      {Colors.CYAN}python3 log_viewer.py --refresh 0.5{Colors.RESET}")
-    print(f"   📄 {Colors.YELLOW}Option 3:{Colors.RESET} Watch raw logs:")
-    print(f"      {Colors.CYAN}tail -f app.log{Colors.RESET}")
-    
-    print(f"\n{Colors.GREEN}✨ New Feature - Automatic Cleanup:{Colors.RESET}")
-    print(f"   🎉 {Colors.BOLD}Servers will automatically shutdown after PDF processing completes!{Colors.RESET}")
-    print(f"   ⚡ No need to manually kill processes anymore")
-    print(f"   🛑 All servers (API, log viewer) will stop automatically")
-    print(f"   💤 5-second delay ensures proper completion")
-    
-    print(f"\n{Colors.GREEN}🚀 How to Use:{Colors.RESET}")
-    print(f"   1. 📁 Prepare your PDF file")
-    print(f"   2. 🖥️  Optional: Start log viewer in another terminal")
-    print(f"   3. 📤 Upload via web interface or curl:")
-    print(f"      {Colors.CYAN}curl -X POST 'http://localhost:8000/upload-pdf/' \\{Colors.RESET}")
-    print(f"      {Colors.CYAN}           -F 'file=@your-file.pdf' \\{Colors.RESET}")
-    print(f"      {Colors.CYAN}           -F 'class_name=7' \\{Colors.RESET}")
-    print(f"      {Colors.CYAN}           -F 'subject=Science' \\{Colors.RESET}")
-    print(f"      {Colors.CYAN}           -F 'chapter=Chapter1'{Colors.RESET}")
-    print(f"   4. ⏱️  Watch the beautiful progress logs!")
-    print(f"   5. 🎯 Servers auto-shutdown when complete")
-    
-    print(f"\n{Colors.GREEN}📁 Output Files:{Colors.RESET}")
-    print(f"   📊 {Colors.CYAN}questions.json{Colors.RESET} - Generated questions")
-    print(f"   📝 {Colors.CYAN}app.log{Colors.RESET} - Processing logs")
     
     print(f"\n{Colors.YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{Colors.RESET}")
     print(f"{Colors.GREEN}🎊 Ready to transform your PDFs into beautiful question banks! 🎊{Colors.RESET}")
@@ -187,7 +150,7 @@ def main():
         print()
         
         # Start the FastAPI server
-        cmd = [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+        cmd = [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
         print(f"{Colors.GRAY}Running: {' '.join(cmd)}{Colors.ENDC}")
         subprocess.run(cmd)
         

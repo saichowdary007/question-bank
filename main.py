@@ -4,7 +4,12 @@ from starlette.middleware.cors import CORSMiddleware
 import os, shutil, json, asyncio, re
 from pdf_utils import extract_pages_from_pdf
 from llm_ollama import call_ollama_mistral_async
-from db import save_question, get_all_questions
+from db import (
+    save_question,
+    get_all_questions,
+    export_questions_to_json,
+    delete_all_questions,
+)
 from deduplication import is_similar
 import logging
 from datetime import datetime
@@ -236,6 +241,19 @@ async def get_processing_status():
         processing_status = "idle"
     return {"status": processing_status}
 
+@app.post("/reset")
+async def reset_state():
+    """Resets the server state."""
+    global processing_status
+    processing_status = "idle"
+    
+    # Delete old questions file if it exists
+    if os.path.exists("questions.json"):
+        os.remove("questions.json")
+        logging.info("🗑️  Previous questions file removed.")
+        
+    return {"status": "reset"}
+
 @app.post("/upload-pdf/")
 async def upload_pdf(
     file: UploadFile = File(...),
@@ -244,15 +262,33 @@ async def upload_pdf(
     chapter: str = Form(...)
 ):
     global processing_status
+    
+    # Reset state at the beginning of an upload
     processing_status = "processing"
+    
+    # Clean up previous exports to ensure a fresh start
+    if os.path.exists("questions.json"):
+         try:
+             os.remove("questions.json")
+             logging.info("🗑️  Removed previous questions.json export")
+         except Exception as e:
+             logging.warning(f"⚠️  Could not delete questions.json: {e}")
+    
+    """Start a brand-new processing session.
+
+    This function now orchestrates the entire workflow from PDF upload to question
+    generation, deduplication, and final export.
+    """
+    
+    # --- 1. INITIAL SETUP & CLEANUP ---
+    log_separator("🚀 INITIATING NEW PROCESSING SESSION", "═")
     
     overall_start_time = time.time()
     
-    log_separator("🚀 STARTING PDF PROCESSING", "═")
-    logging.info(f"📁 Processing file: {file.filename}")
-    logging.info(f"📚 Class: {class_name} | Subject: {subject} | Chapter: {chapter}")
+    # Ensure the upload directory exists
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
     
-    # Save file
+    # Save uploaded file
     file_start_time = time.time()
     file_path = os.path.join(UPLOAD_DIR, file.filename)
     with open(file_path, "wb") as f:
@@ -376,25 +412,10 @@ Text:
 
     log_timing(save_start_time, "Database operations")
     
-    # Convert MongoDB ObjectIds to strings for JSON serialisation
+    # Export all questions in the new schema
     log_separator("📤 EXPORTING RESULTS", "─")
     export_start_time = time.time()
-    
-    serialisable_questions = []
-    for q in new_questions:
-        q_copy = q.copy()
-        if "_id" in q_copy:
-            q_copy["_id"] = str(q_copy["_id"])
-        serialisable_questions.append(q_copy)
-
-    # Export questions to JSON
-    with open("questions.json", "w", encoding="utf-8") as fp:
-        json.dump({
-            "exported_at": datetime.utcnow().isoformat(),
-            "total_questions": len(serialisable_questions),
-            "questions": serialisable_questions,
-        }, fp, indent=2, ensure_ascii=False)
-
+    export_questions_to_json("questions.json")
     log_timing(export_start_time, "Results export")
     
     # Final summary

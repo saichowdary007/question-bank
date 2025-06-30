@@ -14,6 +14,7 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 export default function Home() {
   const [files, setFiles] = useState<FileMetadata[]>([])
   const [activeTab, setActiveTab] = useState<'upload' | 'logs' | 'downloads'>('upload')
+  const [logKey, setLogKey] = useState<number>(Date.now())
 
   const handleFileUpload = useCallback(async (uploadedFiles: File[]) => {
     console.log('Uploading files:', uploadedFiles)
@@ -41,6 +42,9 @@ export default function Home() {
           : f
       ))
     }, 3000)
+
+    // Trigger a fresh LogViewer instance for the upcoming processing run
+    setLogKey(Date.now())
   }, [])
 
   const handleDownload = useCallback((fileId: string) => {
@@ -161,6 +165,7 @@ export default function Home() {
                       wsEndpoint="ws://localhost:8000/logs/"
                       bufferSize={500}
                       autoReconnect={true}
+                      key={logKey}
                     />
                   </div>
                 )}

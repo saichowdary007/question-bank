@@ -39,6 +39,19 @@ export default function Home() {
   });
 
   useEffect(() => {
+    // Reset the backend state when the component mounts
+    const resetBackendState = async () => {
+      try {
+        await fetch("http://localhost:8000/reset", { method: "POST" });
+        console.log("Backend state reset.");
+      } catch (error) {
+        console.error("Failed to reset backend state:", error);
+      }
+    };
+    resetBackendState();
+  }, []);
+
+  useEffect(() => {
     if (logs.length === 0) {
         setStats({
             pages_processed: 0,

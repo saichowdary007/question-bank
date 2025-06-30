@@ -6,7 +6,7 @@ import { Toast, ToastTitle, ToastDescription } from "@/components/ui/toast";
 import { Spinner } from "@/components/ui/spinner";
 
 interface DownloadSectionProps {
-  processingState: "idle" | "processing" | "complete";
+  processingState: "idle" | "processing" | "complete" | "error";
 }
 
 const DownloadSection = ({ processingState }: DownloadSectionProps) => {

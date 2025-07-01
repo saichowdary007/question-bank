@@ -6,12 +6,18 @@ import logging
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "localhost")
 OLLAMA_URL = f"http://{OLLAMA_HOST}:11434/api/generate"
 
+# Timeout (in seconds) for requests to the Ollama server. Can be overridden
+# at runtime with the environment variable `OLLAMA_REQUEST_TIMEOUT` so that
+# deployments with slower hardware (e.g. Docker Desktop on laptops) can use
+# higher values without modifying the source code.
+OLLAMA_REQUEST_TIMEOUT = int(os.getenv("OLLAMA_REQUEST_TIMEOUT", "120"))
+
 def call_ollama_mistral(prompt: str):
     try:
         response = requests.post(
             OLLAMA_URL,
             json={"model": "mistral", "prompt": prompt, "stream": False},
-            timeout=30
+            timeout=OLLAMA_REQUEST_TIMEOUT
         )
         response.raise_for_status()
         return response.json().get("response", "").strip()
@@ -26,7 +32,7 @@ async def call_ollama_mistral_async(prompt: str):
             async with session.post(
                 OLLAMA_URL,
                 json={"model": "mistral", "prompt": prompt, "stream": False},
-                timeout=120,  # Increased timeout for async calls
+                timeout=aiohttp.ClientTimeout(total=OLLAMA_REQUEST_TIMEOUT),
             ) as response:
                 response.raise_for_status()
                 data = await response.json()

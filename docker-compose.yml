@@ -14,8 +14,10 @@ services:
       mongo:
         condition: service_started
     environment:
-      - OLLAMA_HOST=ollama
+      - OLLAMA_HOST=host.docker.internal
       - MONGODB_URI=mongodb://mongo:27017/
+      - CONCURRENT_REQUESTS=2
+      - OLLAMA_REQUEST_TIMEOUT=600
 
   frontend:
     build:
@@ -38,6 +40,10 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
+    environment:
+      - OLLAMA_HOST=ollama
+      - MONGODB_URI=mongodb://mongo:27017/
+      - OLLAMA_NUM_PARALLEL=1
 
   # Service to pull the mistral model
   ollama-setup:

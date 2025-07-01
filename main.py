@@ -10,7 +10,7 @@ from db import (
     export_questions_to_json,
     delete_all_questions,
 )
-from deduplication import is_similar
+from deduplication import is_similar_fast, model as dedup_model
 import logging
 from datetime import datetime
 import time
@@ -19,6 +19,7 @@ import signal
 import subprocess
 import threading
 from fastapi.responses import StreamingResponse
+import torch
 
 app = FastAPI()
 
@@ -41,7 +42,7 @@ app.add_middleware(
     expose_headers=["Content-Type", "Content-Length"]
 )
 
-CONCURRENT_REQUESTS = 4
+CONCURRENT_REQUESTS = int(os.getenv("CONCURRENT_REQUESTS", "4"))
 
 # Enhanced logging configuration
 logging.basicConfig(
@@ -325,6 +326,10 @@ async def upload_pdf(
     logging.info(f"📊 Extracted {len(pages)} pages from PDF")
     
     existing_qs = [q["question"] for q in get_all_questions()]
+    # Pre-compute embeddings for existing questions once to reduce repeated encoding overhead
+    existing_embs = (
+        dedup_model.encode(existing_qs, convert_to_tensor=True) if existing_qs else None
+    )
     new_questions = []
     
     logging.info(f"🗃️  Found {len(existing_qs)} existing questions in database")
@@ -409,7 +414,9 @@ Text:
                 questions_skipped += 1
                 continue
                 
-            if is_similar(q_obj["question"], existing_qs):
+            # Replace duplicate check with fast embedding-based comparison
+            new_emb = dedup_model.encode(q_obj["question"], convert_to_tensor=True)
+            if is_similar_fast(new_emb, existing_embs):
                 questions_skipped += 1
                 logging.info(f"⏭️  Skipped similar question: {q_obj['question'][:50]}...")
                 continue
@@ -429,6 +436,12 @@ Text:
                 log_progress_bar(questions_saved, total_questions_processed, "💾 Questions saved")
             
             logging.info(f"✅ Saved question: {q_obj['question'][:80]}...")
+
+            # Update cached embeddings incrementally
+            if existing_embs is None:
+                existing_embs = new_emb.unsqueeze(0)
+            else:
+                existing_embs = torch.cat((existing_embs, new_emb.unsqueeze(0)), dim=0)
 
     log_timing(save_start_time, "Database operations")
     

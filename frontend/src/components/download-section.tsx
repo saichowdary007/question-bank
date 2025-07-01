@@ -17,8 +17,17 @@ const DownloadSection = ({ processingState, resetSession }: DownloadSectionProps
   const [toastMessage, setToastMessage] = useState({ title: "", description: "" });
   const [serverShutdown, setServerShutdown] = useState(false);
 
+  // Continue polling the backend until the file is confirmed ready, even if the
+  // frontend processing state has already transitioned to "complete" based on
+  // the log stream. This prevents a race-condition where the log stream marks
+  // completion *before* the /processing-status endpoint does, leaving the
+  // download button disabled.
   useEffect(() => {
-    if (processingState === "processing" || processingState === "idle") {
+    if (isReady || processingState === "error") {
+      return
+    }
+
+    if (processingState === "processing" || processingState === "idle" || processingState === "complete") {
       const interval = setInterval(async () => {
         try {
           const response = await fetch("http://localhost:8000/processing-status");
@@ -50,7 +59,7 @@ const DownloadSection = ({ processingState, resetSession }: DownloadSectionProps
 
       return () => clearInterval(interval);
     }
-  }, [processingState]);
+  }, [processingState, isReady]);
 
   const handleDownload = async () => {
     setDownloading(true);

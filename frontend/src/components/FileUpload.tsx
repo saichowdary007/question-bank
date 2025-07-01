@@ -45,7 +45,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
         uploadedAt: new Date(),
         status: error ? 'error' : 'pending',
         progress: 0,
-        error,
+        error: error || undefined,
       }
       newFiles.push(fileMetadata)
     })

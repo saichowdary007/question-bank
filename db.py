@@ -1,12 +1,14 @@
 from pymongo import MongoClient
 import json
+import os
 from datetime import datetime
 from bson import ObjectId
 import re
 import hashlib
 import random
+import shutil
 
-client = MongoClient("mongodb://localhost:27017/")
+client = MongoClient(os.environ.get("MONGODB_URI", "mongodb://localhost:27017/"))
 db = client["question_bank"]
 collection = db["questions"]
 
@@ -39,6 +41,27 @@ def _convert_question_for_export(q: dict) -> dict:
     raw_options = q.get("options", [])
     raw_options_list = list(raw_options.values()) if isinstance(raw_options, dict) else list(raw_options)
 
+    # If options are packed into a single string (e.g., "A) ... B) ... C) ... D) ...") OR only one
+    # of the four slots is non-empty and contains all markers, split it into four.
+    if raw_options_list:
+        needs_split = False
+        combined_str = None
+
+        if len(raw_options_list) == 1 and isinstance(raw_options_list[0], str):
+            combined_str = raw_options_list[0]
+            needs_split = True
+        elif len(raw_options_list) == 4:
+            non_empty = [opt for opt in raw_options_list if isinstance(opt, str) and opt.strip()]
+            if len(non_empty) == 1:
+                combined_str = non_empty[0]
+                needs_split = True
+
+        if needs_split and combined_str and re.search(r"[A-D]\s*[\)\.:]", combined_str):
+            split_candidate = re.sub(r"\s*[A-D]\s*[\)\.:]\s*", "|", combined_str)
+            parts = [p.strip() for p in split_candidate.split("|") if p.strip()]
+            if len(parts) == 4:
+                raw_options_list = parts
+
     # Ensure exactly four options
     while len(raw_options_list) < 4:
         raw_options_list.append("")
@@ -48,7 +71,7 @@ def _convert_question_for_export(q: dict) -> dict:
     cleaned_options = [_clean_option_text(opt) for opt in raw_options_list]
 
     # Determine the text of the correct answer before shuffling
-    answer_letter = str(q.get("answer", "")).strip().upper()
+    answer_letter = str(q.get("answer") or q.get("correct_answer") or "").strip().upper()
     answer_index = ord(answer_letter) - ord("A") if answer_letter in ["A", "B", "C", "D"] else 0
     correct_answer_text = _clean_option_text(raw_options_list[answer_index])
 
@@ -81,6 +104,11 @@ def export_questions_to_json(file_path: str = "questions.json"):
     """Dump all questions in the MongoDB collection to ``file_path`` in the new
     JSON schema required by the frontend export.
     """
+    # Safeguard: If file_path exists as a directory, remove it
+    if os.path.exists(file_path) and os.path.isdir(file_path):
+        shutil.rmtree(file_path)
+        print(f"Warning: Removed directory '{file_path}' to create export file")
+    
     questions = list(collection.find())
 
     transformed = [_convert_question_for_export(q) for q in questions]

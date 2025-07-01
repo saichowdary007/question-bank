@@ -7,9 +7,10 @@ import { Spinner } from "@/components/ui/spinner";
 
 interface DownloadSectionProps {
   processingState: "idle" | "processing" | "complete" | "error";
+  resetSession: () => void;
 }
 
-const DownloadSection = ({ processingState }: DownloadSectionProps) => {
+const DownloadSection = ({ processingState, resetSession }: DownloadSectionProps) => {
   const [isReady, setIsReady] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [showToast, setShowToast] = useState(false);
@@ -80,6 +81,12 @@ const DownloadSection = ({ processingState }: DownloadSectionProps) => {
         description: "Questions downloaded successfully."
       });
       setShowToast(true);
+      
+      // Reload the page to reset the state for the next session.
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000); // 2 second delay for user to see the success toast.
+      
     } catch (error: any) {
       if (!serverShutdown) {
         setToastMessage({

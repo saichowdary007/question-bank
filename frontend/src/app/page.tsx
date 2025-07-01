@@ -38,6 +38,23 @@ export default function Home() {
     total_pages: 0,
   });
 
+  // Reset function to clear all state for new uploads
+  const resetSession = () => {
+    setLogs([]);
+    setStats({
+      pages_processed: 0,
+      questions_generated: 0,
+      questions_saved: 0,
+      questions_skipped: 0,
+      errors: 0,
+      start_time: null,
+      current_phase: 'Waiting...',
+      progress: 0,
+      total_pages: 0,
+    });
+    setProcessingState("idle");
+  };
+
   useEffect(() => {
     // Reset the backend state when the component mounts
     const resetBackendState = async () => {
@@ -107,7 +124,7 @@ export default function Home() {
   useEffect(() => {
     if (processingState !== "processing") return;
 
-    const eventSource = new EventSource("http://localhost:8000/logs/");
+    const eventSource = new EventSource("http://localhost:8000/logs/?from_end=true");
     setLogs([]); // Clear previous logs
 
     eventSource.onmessage = (event) => {
@@ -174,8 +191,9 @@ export default function Home() {
             setProcessingState={setProcessingState} 
             setLogs={setLogs}
             processingState={processingState}
+            resetSession={resetSession}
           />
-          <DownloadSection processingState={processingState} />
+          <DownloadSection processingState={processingState} resetSession={resetSession} />
         </div>
 
         {/* Right Rail */}

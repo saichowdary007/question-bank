@@ -136,9 +136,8 @@ def main():
     try:
         # Clear any existing log file for a fresh start
         if Path("app.log").exists():
-            backup_name = f"app_backup_{int(time.time())}.log"
-            Path("app.log").rename(backup_name)
-            print(f"{Colors.GRAY}📁 Previous log backed up as: {backup_name}{Colors.ENDC}")
+            Path("app.log").unlink()
+            print(f"{Colors.GRAY}🗑️  Removed previous log file: app.log{Colors.ENDC}")
         
         print(f"{Colors.OKCYAN}🌐 Server starting at http://localhost:8000{Colors.ENDC}")
         print(f"{Colors.GRAY}📄 API docs available at http://localhost:8000/docs{Colors.ENDC}")

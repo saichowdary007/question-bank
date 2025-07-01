@@ -11,9 +11,10 @@ interface UploadSectionProps {
   setProcessingState: (state: "idle" | "processing" | "complete" | "error") => void;
   setLogs: (logs: any[]) => void;
   processingState: "idle" | "processing" | "complete" | "error";
+  resetSession: () => void;
 }
 
-const UploadSection = ({ setProcessingState, setLogs, processingState }: UploadSectionProps) => {
+const UploadSection = ({ setProcessingState, setLogs, processingState, resetSession }: UploadSectionProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [className, setClassName] = useState("7");
   const [subject, setSubject] = useState("Science");
@@ -31,6 +32,10 @@ const UploadSection = ({ setProcessingState, setLogs, processingState }: UploadS
         e.target.value = "";
         return;
       }
+      
+      // Reset session when new file is selected
+      resetSession();
+      
       setFile(selectedFile);
       setError(null);
     }

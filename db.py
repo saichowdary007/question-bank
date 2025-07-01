@@ -11,10 +11,10 @@ db = client["question_bank"]
 collection = db["questions"]
 
 OPTION_KEYS = [
-    "kqdr9qtm18n",
-    "q8se6l1d6h",
-    "a8gdapr77xt",
-    "t5z8il1i4en",
+    "a",
+    "b",
+    "c",
+    "d",
 ]
 
 def save_question(data: dict):

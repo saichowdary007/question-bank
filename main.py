@@ -183,13 +183,33 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 LOG_FILE_PATH = "app.log"
 
 @app.get("/logs/")
-async def stream_logs(request: Request):
+async def stream_logs(request: Request, from_end: bool = False):
+    """Stream server logs as Server-Sent Events (SSE).
+
+    Args:
+        request: Starlette request instance (used to detect client disconnects).
+        from_end: If *True*, the stream starts at the **current** end of the log
+            file instead of replaying the entire file. This is useful for
+            consecutive processing sessions where the client only cares about
+            **new** log lines.
+    """
+
+    # Determine the starting offset **outside** the generator to avoid reopening
+    # the file just to seek to its current length on every iteration.
+    start_position = 0
+    if from_end and os.path.exists(LOG_FILE_PATH):
+        # Seek to the end of the file so we only stream *new* log lines.
+        with open(LOG_FILE_PATH, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            start_position = f.tell()
+
     async def log_generator():
-        last_position = 0
+        # Track how many bytes we've already read.
+        last_position = start_position
         
-        # Create log file if it doesn't exist to prevent initial error
+        # Create the log file if it doesn't exist to prevent initial errors.
         if not os.path.exists(LOG_FILE_PATH):
-            open(LOG_FILE_PATH, 'a').close()
+            open(LOG_FILE_PATH, "a").close()
 
         try:
             while True:

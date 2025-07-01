@@ -20,7 +20,14 @@ OPTION_KEYS = [
 ]
 
 def save_question(data: dict):
-    collection.insert_one(data)
+    """Insert a question document and return the newly created ``ObjectId``.
+
+    The original implementation discarded the inserted ID, but returning it
+    allows callers to keep track of questions created in a specific processing
+    session without altering any external behaviour.
+    """
+    result = collection.insert_one(data)
+    return result.inserted_id
 
 def get_all_questions():
     return list(collection.find({}, {"question": 1, "_id": 0}))
@@ -126,3 +133,30 @@ def delete_all_questions():
     """Deletes all documents from the questions collection."""
     result = collection.delete_many({})
     return result.deleted_count
+
+# ----------------------------------------------------------------------------------
+# Export helpers
+# ----------------------------------------------------------------------------------
+
+def export_questions_to_json_subset(questions, file_path: str = "questions.json"):
+    """Export *only* the provided ``questions`` list to ``file_path``.
+
+    This helper is identical to :pyfunc:`export_questions_to_json` but operates on
+    an in-memory collection instead of pulling the full database. It is useful
+    for generating a session-scoped export without affecting existing logic.
+    """
+    # Safeguard: If file_path exists as a directory, remove it
+    if os.path.exists(file_path) and os.path.isdir(file_path):
+        shutil.rmtree(file_path)
+        print(f"Warning: Removed directory '{file_path}' to create export file")
+
+    transformed = [_convert_question_for_export(q) for q in questions]
+
+    payload = {
+        "exported_at": datetime.utcnow().isoformat(),
+        "total_questions": len(transformed),
+        "questions": transformed,
+    }
+
+    with open(file_path, "w", encoding="utf-8") as fp:
+        json.dump(payload, fp, indent=2, ensure_ascii=False)

@@ -7,7 +7,7 @@ from llm_ollama import call_ollama_mistral_async
 from db import (
     save_question,
     get_all_questions,
-    export_questions_to_json,
+    export_questions_to_json_subset,
     delete_all_questions,
 )
 from deduplication import is_similar_fast, model as dedup_model
@@ -427,7 +427,9 @@ Text:
                 "chapter": chapter,
                 **q_obj,
             }
-            save_question(saved_question)
+            # Insert and track the newly created question
+            inserted_id = save_question(saved_question)
+            saved_question["_id"] = inserted_id
             existing_qs.append(q_obj["question"])
             new_questions.append(saved_question)
             questions_saved += 1
@@ -445,10 +447,10 @@ Text:
 
     log_timing(save_start_time, "Database operations")
     
-    # Export all questions in the new schema
+    # Export *only* the questions created during this processing session
     log_separator("📤 EXPORTING RESULTS", "─")
     export_start_time = time.time()
-    export_questions_to_json("questions.json")
+    export_questions_to_json_subset(new_questions, "questions.json")
     log_timing(export_start_time, "Results export")
     
     # Final summary

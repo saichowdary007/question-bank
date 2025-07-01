@@ -17,4 +17,5 @@
 # OS / Editor
 .DS_Store
 .idea/
-.vscode/ 
+.vscode/
+.cursor/ 

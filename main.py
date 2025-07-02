@@ -1,9 +1,9 @@
-from fastapi import FastAPI, File, UploadFile, Form, Request, WebSocket
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, UploadFile, Form, Request, WebSocket, Body
+from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
-import os, shutil, json, asyncio, re
+import os, shutil, json, asyncio, re, aiohttp  # type: ignore
 from pdf_utils import extract_pages_from_pdf
-from llm_ollama import call_ollama_mistral_async
+from llm_ollama import call_ollama_mistral_async, OLLAMA_URL, OLLAMA_REQUEST_TIMEOUT
 from db import (
     save_question,
     get_all_questions,
@@ -521,3 +521,32 @@ async def websocket_logs(websocket: WebSocket):
             await websocket.close()
         except:
             pass
+
+# -------------------------------------------------------------
+# 🔄 Replaced: Proxy to native Ollama /api/generate (JSON in ➜ JSON out)
+# -------------------------------------------------------------
+
+@app.post("/ask-plain")
+async def proxy_ollama_generate(payload: dict = Body(...)):
+    """Forward JSON payload directly to the running Ollama server and return its native JSON response.
+
+    Example payload expected (same as Ollama):
+        {
+          "model": "mistral",
+          "prompt": "hello",
+          "stream": false
+        }
+    """
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                OLLAMA_URL,
+                json=payload,
+                timeout=aiohttp.ClientTimeout(total=OLLAMA_REQUEST_TIMEOUT),
+            ) as resp:
+                resp.raise_for_status()
+                data = await resp.json()
+                return JSONResponse(content=data)
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)

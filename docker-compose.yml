@@ -15,7 +15,7 @@ services:
         condition: service_started
     environment:
       - OLLAMA_HOST=host.docker.internal
-      - MONGODB_URI=mongodb://mongo:27017/
+      - MONGODB_URI=mongodb+srv://question_bank:huH88r0YRTUrdwuM@cluster0.maske42.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
       - CONCURRENT_REQUESTS=2
       - OLLAMA_REQUEST_TIMEOUT=600
 
@@ -42,8 +42,8 @@ services:
       start_period: 30s
     environment:
       - OLLAMA_HOST=ollama
-      - MONGODB_URI=mongodb://mongo:27017/
-      - OLLAMA_NUM_PARALLEL=1
+      - MONGODB_URI=mongodb+srv://question_bank:huH88r0YRTUrdwuM@cluster0.maske42.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+      - OLLAMA_NUM_PARALLEL=2
 
   # Service to pull the mistral model
   ollama-setup:

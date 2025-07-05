@@ -325,7 +325,11 @@ async def upload_pdf(
     
     logging.info(f"📊 Extracted {len(pages)} pages from PDF")
     
-    existing_qs = [q["question"] for q in get_all_questions()]
+    existing_qs = [
+        (q.get("question") or q.get("question_name"))
+        for q in get_all_questions()
+        if (q.get("question") or q.get("question_name"))
+    ]
     # Pre-compute embeddings for existing questions once to reduce repeated encoding overhead
     existing_embs = (
         dedup_model.encode(existing_qs, convert_to_tensor=True) if existing_qs else None
@@ -421,11 +425,33 @@ Text:
                 logging.info(f"⏭️  Skipped similar question: {q_obj['question'][:50]}...")
                 continue
 
+            # Build option mapping (ensure keys a–d)
+            raw_options = q_obj.get("options", [])
+            if isinstance(raw_options, list):
+                option_map = {k: v for k, v in zip(["a", "b", "c", "d"], raw_options)}
+            elif isinstance(raw_options, dict):
+                # Normalise keys to lowercase a–d if already provided
+                option_map = {k.lower(): v for k, v in raw_options.items()}
+            else:
+                option_map = {}
+
+            # Determine correct answer key
+            answer_raw = str(q_obj.get("answer", "")).strip()
+            if answer_raw.upper() in ["A", "B", "C", "D"]:
+                correct_key = answer_raw.lower()
+            else:
+                # Match answer text against options
+                correct_key = next(
+                    (k for k, v in option_map.items() if isinstance(v, str) and v.strip().lower() == answer_raw.lower()),
+                    "a",
+                )
+
             saved_question = {
-                "class": class_name,
-                "subject": subject,
-                "chapter": chapter,
-                **q_obj,
+                "question_type": "single_choice",
+                "question_name": q_obj["question"],
+                "correct_answer": correct_key,
+                "options": option_map,
+                "__v": 0,
             }
             # Insert and track the newly created question
             inserted_id = save_question(saved_question)

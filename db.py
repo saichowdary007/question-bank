@@ -8,7 +8,7 @@ import hashlib
 import random
 import shutil
 
-client = MongoClient(os.environ.get("MONGODB_URI", "mongodb://localhost:27017/"))
+client = MongoClient(os.environ.get("MONGODB_URI", "mongodb+srv://question_bank:huH88r0YRTUrdwuM@cluster0.maske42.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"))
 db = client["question_bank"]
 collection = db["questions"]
 
@@ -30,10 +30,31 @@ def save_question(data: dict):
     return result.inserted_id
 
 def get_all_questions():
-    return list(collection.find({}, {"question": 1, "_id": 0}))
+    """Return all questions, projecting both legacy and new question text fields."""
+    return list(collection.find({}, {"question": 1, "question_name": 1, "_id": 0}))
 
 def _convert_question_for_export(q: dict) -> dict:
     """Convert a Mongo document into the required questions.json schema."""
+    # ---------- Fast-path for already normalised documents ----------
+    # If the document already contains the modern schema keys and an
+    # options mapping with exactly the expected keys (a–d), we can skip
+    # all further transformation logic. This prevents the exporter from
+    # re-shuffling or modifying questions that were re-imported from a
+    # previously exported *questions.json* file, ensuring idempotency.
+    if (
+        {"question_type", "question_name", "correct_answer", "options"}.issubset(q.keys())
+        and isinstance(q.get("options"), dict)
+        and set(q["options"].keys()) == set(OPTION_KEYS)
+    ):
+        return {
+            "_id": {"$oid": str(q.get("_id"))},
+            "question_type": q["question_type"],
+            "question_name": q["question_name"],
+            "correct_answer": q["correct_answer"],
+            "options": q["options"],
+            "__v": q.get("__v", 0),
+        }
+
     # Helper to strip leading/trailing option markers like "A)", "(A)", "A." etc.
     def _clean_option_text(text: str) -> str:
         if not isinstance(text, str):
@@ -82,8 +103,11 @@ def _convert_question_for_export(q: dict) -> dict:
     answer_index = ord(answer_letter) - ord("A") if answer_letter in ["A", "B", "C", "D"] else 0
     correct_answer_text = _clean_option_text(raw_options_list[answer_index])
 
+    # Support both legacy ("question") and new ("question_name") field names
+    question_text = q.get("question") or q.get("question_name") or ""
+
     # Deterministically shuffle options to distribute correct answers across keys
-    seed = int(hashlib.md5(q.get("question", "").encode()).hexdigest(), 16)
+    seed = int(hashlib.md5(question_text.encode()).hexdigest(), 16)
     rnd = random.Random(seed)
     shuffled_options = cleaned_options.copy()
     rnd.shuffle(shuffled_options)
@@ -101,7 +125,7 @@ def _convert_question_for_export(q: dict) -> dict:
     return {
         "_id": {"$oid": str(q.get("_id"))},
         "question_type": "single_choice",
-        "question_name": q.get("question", ""),
+        "question_name": question_text,
         "correct_answer": correct_key,
         "options": options_dict,
         "__v": 0,

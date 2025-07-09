@@ -273,7 +273,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🆘 Support
 
-For issues and questions:
+
 1. Check the troubleshooting section above
 2. Review the logs for error details
 3. Ensure all prerequisites are installed

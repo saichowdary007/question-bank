@@ -8,7 +8,7 @@ import hashlib
 import random
 import shutil
 
-client = MongoClient(os.environ.get("MONGODB_URI", "mongodb+srv://question_bank:huH88r0YRTUrdwuM@cluster0.maske42.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"))
+client = MongoClient(os.environ.get("MONGODB_URI", "MONGO_URI"))
 db = client["question_bank"]
 collection = db["questions"]
 

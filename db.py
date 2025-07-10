@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()  # reads .env into os.environ
 from pymongo import MongoClient
 import json
 import os
@@ -8,9 +10,16 @@ import hashlib
 import random
 import shutil
 
-client = MongoClient(os.environ.get("MONGODB_URI", "MONGO_URI"))
+#
+# Initialize MongoDB client using either MONGODB_URI or MONGO_URI environment variable
+mongo_uri = os.environ.get("MONGODB_URI") or os.environ.get("MONGO_URI")
+if not mongo_uri:
+    raise RuntimeError("Environment variable MONGODB_URI or MONGO_URI must be set")
+client = MongoClient(mongo_uri)
 db = client["question_bank"]
 collection = db["questions"]
+process_collection = db["processing_state"]
+
 
 OPTION_KEYS = [
     "a",
@@ -184,3 +193,28 @@ def export_questions_to_json_subset(questions, file_path: str = "questions.json"
 
     with open(file_path, "w", encoding="utf-8") as fp:
         json.dump(payload, fp, indent=2, ensure_ascii=False)
+
+
+def upsert_processing_state(key: str, status: str, **metadata):
+    """Create or update a processing-status record for the given S3 object ``key``.
+
+    The document _id equals the S3 *object key* which is unique in the bucket.
+    Additional metadata such as timestamps, file size or error details can be
+    provided via ``**metadata``.
+    """
+    from datetime import datetime  # local import to avoid polluting global ns
+
+    update = {
+        "status": status,
+        **metadata,
+        "updated_at": datetime.utcnow(),
+    }
+    # Preserve original creation timestamp on subsequent updates
+    process_collection.update_one(
+        {"_id": key},
+        {
+            "$set": update,
+            "$setOnInsert": {"created_at": datetime.utcnow()},
+        },
+        upsert=True,
+    )

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Form, Request, WebSocket, Body
+from fastapi import FastAPI, Request, WebSocket, Body
 from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 import os, shutil, json, asyncio, re, aiohttp  # type: ignore
@@ -20,6 +20,7 @@ import subprocess
 import threading
 from fastapi.responses import StreamingResponse
 import torch
+from processor import PDFProcessor
 
 app = FastAPI()
 
@@ -28,9 +29,8 @@ ProcessingStatus = Literal["idle", "processing", "complete", "error"]
 processing_status: ProcessingStatus = "idle"
 
 origins = [
+    # Frontend removed – restrict to local backend calls only
     "http://localhost",
-    "http://localhost:3000",
-    "http://localhost:3003",  # Added to allow frontend on port 3003
 ]
 
 app.add_middleware(
@@ -44,39 +44,43 @@ app.add_middleware(
 
 CONCURRENT_REQUESTS = int(os.getenv("CONCURRENT_REQUESTS", "4"))
 
-# Enhanced logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('app.log', encoding='utf-8'),
-        logging.StreamHandler()  # Also log to console for real-time viewing
-    ]
-)
+# ---------------------------------------------------------------------------
+# Logging – console (colored) *and* file (JSON lines for downstream ingestion)
+# ---------------------------------------------------------------------------
 
-# Create a custom formatter for console output with colors
-class ColoredFormatter(logging.Formatter):
-    """Custom formatter adding colors to different log levels."""
-    
-    # Color codes
-    COLORS = {
-        'DEBUG': '\033[36m',    # Cyan
-        'INFO': '\033[32m',     # Green
-        'WARNING': '\033[33m',  # Yellow
-        'ERROR': '\033[31m',    # Red
-        'CRITICAL': '\033[35m', # Magenta
-        'RESET': '\033[0m'      # Reset
-    }
-    
-    def format(self, record):
-        log_color = self.COLORS.get(record.levelname, self.COLORS['RESET'])
-        record.levelname = f"{log_color}{record.levelname}{self.COLORS['RESET']}"
-        return super().format(record)
+class JsonFormatter(logging.Formatter):
+    """Simple JSON log formatter producing one-line JSON objects."""
 
-# Apply colored formatter to console handler
+    def format(self, record):  # type: ignore[override]
+        import json  # local import avoids polluting top-level namespace
+
+        base = {
+            "timestamp": self.formatTime(record),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "module": record.module,
+        }
+        if record.exc_info:
+            base["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(base, ensure_ascii=False)
+
+
+# Configure root logger programmatically to support mixed formatters
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+# Console handler (colored human-friendly)
 console_handler = logging.StreamHandler()
-console_handler.setFormatter(ColoredFormatter('%(asctime)s - %(levelname)s - %(message)s'))
-logging.getLogger().handlers[1] = console_handler
+console_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+root_logger.addHandler(console_handler)
+
+# File handler (structured JSON)
+file_handler = logging.FileHandler("app.log", encoding="utf-8")
+file_handler.setFormatter(JsonFormatter())
+root_logger.addHandler(file_handler)
+
+# Replace default handler in earlier code reference
+logging.getLogger().handlers = [console_handler, file_handler]
 
 def log_separator(title: str = "", char: str = "=", length: int = 80):
     """Create a visual separator in logs."""
@@ -183,6 +187,49 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 LOG_FILE_PATH = "app.log"
 
+pdf_processor: PDFProcessor | None = None
+
+@app.on_event("startup")
+def _start_pdf_processor():
+    """Launch the SQS polling worker in a background thread (only if configured)."""
+    global pdf_processor
+    
+    # Check if SQS is configured for production use
+    sqs_queue_url = os.getenv("SQS_QUEUE_URL", "").strip()
+    
+    if not sqs_queue_url:
+        logging.info("🔧 SQS_QUEUE_URL not configured - running in local development mode (no background processing)")
+        logging.info("📝 API endpoints will still be available for manual file uploads")
+        return
+    
+    try:
+        pdf_processor = PDFProcessor()
+        threading.Thread(target=pdf_processor.poll_and_process_forever, daemon=True).start()
+        logging.info("🚀 PDFProcessor background thread started (queue=%s)", pdf_processor.queue_url)
+    except Exception as exc:
+        logging.warning("⚠️  Could not start PDFProcessor: %s - running in local mode", exc)
+        logging.info("📝 API endpoints will still be available for manual file uploads")
+
+
+@app.get("/health")
+async def health():
+    """Simple liveness probe for container orchestrators (Docker, K8s etc.)."""
+    return {"status": "ok"}
+
+
+@app.get("/status")
+async def runtime_status():
+    """Return basic queue metrics to aid monitoring/alerting."""
+    if pdf_processor is None:
+        return {"status": "initialising"}
+
+    attrs = pdf_processor.sqs.get_queue_attributes(pdf_processor.queue_url)
+    return {
+        "queue_url": pdf_processor.queue_url,
+        "queue_depth": attrs.get("ApproximateNumberOfMessages"),
+        "inflight": attrs.get("ApproximateNumberOfMessagesNotVisible"),
+    }
+
 @app.get("/logs/")
 async def stream_logs(request: Request, from_end: bool = False):
     """Stream server logs as Server-Sent Events (SSE).
@@ -275,243 +322,9 @@ async def reset_state():
         
     return {"status": "reset"}
 
-@app.post("/upload-pdf/")
-async def upload_pdf(
-    file: UploadFile = File(...),
-    class_name: str = Form(...),
-    subject: str = Form(...),
-    chapter: str = Form(...)
-):
-    global processing_status
-    
-    # Reset state at the beginning of an upload
-    processing_status = "processing"
-    
-    # Clean up previous exports to ensure a fresh start
-    if os.path.exists("questions.json"):
-         try:
-             os.remove("questions.json")
-             logging.info("🗑️  Removed previous questions.json export")
-         except Exception as e:
-             logging.warning(f"⚠️  Could not delete questions.json: {e}")
-    
-    """Start a brand-new processing session.
-
-    This function now orchestrates the entire workflow from PDF upload to question
-    generation, deduplication, and final export.
-    """
-    
-    # --- 1. INITIAL SETUP & CLEANUP ---
-    log_separator("🚀 INITIATING NEW PROCESSING SESSION", "═")
-    
-    overall_start_time = time.time()
-    
-    # Ensure the upload directory exists
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    
-    # Save uploaded file
-    file_start_time = time.time()
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-    
-    log_timing(file_start_time, "File upload and save")
-    
-    # Extract pages
-    log_separator("📄 EXTRACTING PAGES FROM PDF", "─")
-    extract_start_time = time.time()
-    pages = extract_pages_from_pdf(file_path)
-    log_timing(extract_start_time, "Page extraction")
-    
-    logging.info(f"📊 Extracted {len(pages)} pages from PDF")
-    
-    existing_qs = [
-        (q.get("question") or q.get("question_name"))
-        for q in get_all_questions()
-        if (q.get("question") or q.get("question_name"))
-    ]
-    # Pre-compute embeddings for existing questions once to reduce repeated encoding overhead
-    existing_embs = (
-        dedup_model.encode(existing_qs, convert_to_tensor=True) if existing_qs else None
-    )
-    new_questions = []
-    
-    logging.info(f"🗃️  Found {len(existing_qs)} existing questions in database")
-    
-    semaphore = asyncio.Semaphore(CONCURRENT_REQUESTS)
-
-    async def process_page(page_text: str, page_num: int):
-        """Generates questions for a single page, respecting the semaphore."""
-        page_start_time = time.time()
-        
-        async with semaphore:
-            logging.info(f"🔄 Processing page {page_num}/{len(pages)} - Requesting MCQs...")
-            
-            prompt = f'''You are an intelligent educational assistant.
-
-Read the following page excerpt from a school book (Grades 1–10) and identify its main concepts.
-Generate between 3 and 5 multiple-choice questions (MCQs) that test understanding of those concepts.
-
-Rules:
-1. Provide 3 to 5 questions total.
-2. Each question must stem directly from the provided text.
-3. Do not repeat or rephrase existing questions within the same list.
-4. Give exactly 4 answer options labelled A–D in an array.
-5. Clearly indicate the correct answer for each question using the same letter (e.g., "A").
-6. Return ONLY a valid JSON array of objects in the form:
-
-[
-  {{"question": "...", "options": ["A", "B", "C", "D"], "answer": "A"}},
-  ...
-]
-
-Text:
-"""
-{page_text}
-"""
-'''
-            try:
-                response = await call_ollama_mistral_async(prompt)
-                data = json.loads(response)
-                
-                if isinstance(data, dict) and "questions" in data:
-                    questions_list = data["questions"]
-                else:
-                    questions_list = data
-                
-                if not isinstance(questions_list, list):
-                    raise ValueError("Expected a list of questions in JSON output")
-                
-                page_elapsed = time.time() - page_start_time
-                logging.info(f"✅ Page {page_num} completed: {len(questions_list)} MCQs generated in {page_elapsed:.1f}s")
-                log_progress_bar(page_num, len(pages), "📖 Pages processed")
-                
-                return questions_list
-            except Exception as e:
-                logging.error(f"❌ Error processing page {page_num}: {e}")
-                return []
-
-    # Create and run all page-processing tasks concurrently
-    log_separator("🧠 GENERATING QUESTIONS WITH AI", "─")
-    processing_start_time = time.time()
-    
-    logging.info(f"⚡ Starting concurrent processing with {CONCURRENT_REQUESTS} workers")
-    
-    tasks = [process_page(page, i + 1) for i, page in enumerate(pages) if page.strip()]
-    results_from_pages = await asyncio.gather(*tasks)
-
-    log_timing(processing_start_time, "AI question generation")
-    
-    # Process results and save to database
-    log_separator("💾 SAVING QUESTIONS TO DATABASE", "─")
-    save_start_time = time.time()
-    
-    total_questions_processed = 0
-    questions_saved = 0
-    questions_skipped = 0
-    
-    for page_idx, questions_list in enumerate(results_from_pages):
-        for q_obj in questions_list:
-            total_questions_processed += 1
-            
-            if not q_obj or "question" not in q_obj:
-                questions_skipped += 1
-                continue
-                
-            # Replace duplicate check with fast embedding-based comparison
-            new_emb = dedup_model.encode(q_obj["question"], convert_to_tensor=True)
-            if is_similar_fast(new_emb, existing_embs):
-                questions_skipped += 1
-                logging.info(f"⏭️  Skipped similar question: {q_obj['question'][:50]}...")
-                continue
-
-            # Build option mapping (ensure keys a–d)
-            raw_options = q_obj.get("options", [])
-            if isinstance(raw_options, list):
-                option_map = {k: v for k, v in zip(["a", "b", "c", "d"], raw_options)}
-            elif isinstance(raw_options, dict):
-                # Normalise keys to lowercase a–d if already provided
-                option_map = {k.lower(): v for k, v in raw_options.items()}
-            else:
-                option_map = {}
-
-            # Determine correct answer key
-            answer_raw = str(q_obj.get("answer", "")).strip()
-            if answer_raw.upper() in ["A", "B", "C", "D"]:
-                correct_key = answer_raw.lower()
-            else:
-                # Match answer text against options
-                correct_key = next(
-                    (k for k, v in option_map.items() if isinstance(v, str) and v.strip().lower() == answer_raw.lower()),
-                    "a",
-                )
-
-            saved_question = {
-                "question_type": "single_choice",
-                "question_name": q_obj["question"],
-                "correct_answer": correct_key,
-                "options": option_map,
-                "__v": 0,
-            }
-            # Insert and track the newly created question
-            inserted_id = save_question(saved_question)
-            saved_question["_id"] = inserted_id
-            existing_qs.append(q_obj["question"])
-            new_questions.append(saved_question)
-            questions_saved += 1
-            
-            if questions_saved % 5 == 0:  # Log every 5th saved question
-                log_progress_bar(questions_saved, total_questions_processed, "💾 Questions saved")
-            
-            logging.info(f"✅ Saved question: {q_obj['question'][:80]}...")
-
-            # Update cached embeddings incrementally
-            if existing_embs is None:
-                existing_embs = new_emb.unsqueeze(0)
-            else:
-                existing_embs = torch.cat((existing_embs, new_emb.unsqueeze(0)), dim=0)
-
-    log_timing(save_start_time, "Database operations")
-    
-    # Export *only* the questions created during this processing session
-    log_separator("📤 EXPORTING RESULTS", "─")
-    export_start_time = time.time()
-    export_questions_to_json_subset(new_questions, "questions.json")
-    log_timing(export_start_time, "Results export")
-    
-    # Final summary
-    log_separator("🎉 PROCESSING COMPLETE", "═")
-    log_timing(overall_start_time, "Total processing time")
-    
-    logging.info(f"📊 SUMMARY:")
-    logging.info(f"   📄 Pages processed: {len(pages)}")
-    logging.info(f"   🔢 Total questions generated: {total_questions_processed}")
-    logging.info(f"   💾 Questions saved: {questions_saved}")
-    logging.info(f"   ⏭️  Questions skipped (duplicates): {questions_skipped}")
-    logging.info(f"   📁 Results exported to: questions.json")
-    
-    log_separator("", "═")
-
-    processing_status = "complete"
-
-    # 🎯 NEW: Automatic shutdown after completion
-    # logging.info("🚀 Initiating automatic shutdown sequence...")
-    
-    # # Start shutdown in background thread to not block the HTTP response
-    # shutdown_thread = threading.Thread(target=delayed_shutdown, daemon=True)
-    # shutdown_thread.start()
-
-    return {
-        "status": "completed",
-        "message": "PDF processed successfully! Servers will shutdown automatically in 5 seconds.",
-        "summary": {
-            "pages_processed": len(pages),
-            "questions_generated": total_questions_processed,
-            "questions_saved": questions_saved,
-            "questions_skipped": questions_skipped,
-            "output_file": "questions.json"
-        }
-    }
+# ------------------------------
+# Deprecated endpoints removed
+# ------------------------------
 
 @app.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):

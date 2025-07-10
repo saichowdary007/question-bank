@@ -3,8 +3,35 @@ import aiohttp
 import os
 import logging
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "localhost")
-OLLAMA_URL = f"http://{OLLAMA_HOST}:11434/api/generate"
+# ---------------------------------------------------------------------------
+# Ollama endpoint configuration
+# ---------------------------------------------------------------------------
+
+# ``OLLAMA_HOST`` may be provided in **two** forms:
+#   1. Bare hostname (e.g. ``ollama`` or ``localhost``)
+#   2. Full URL including scheme/port (e.g. ``http://ollama:11434``)
+#
+# The previous implementation blindly prefixed the value with ``http://`` and
+# appended the default port which resulted in invalid URLs like
+# ``http://http://ollama:11434:11434`` when the full form was provided via
+# environment variables. The helper below normalises the input to build a
+# valid ``/api/generate`` endpoint irrespective of the supplied format.
+
+def _build_ollama_url() -> str:
+    host_env = os.getenv("OLLAMA_HOST", "localhost").rstrip("/")
+
+    # If scheme is already present we assume the host contains the correct
+    # network location (hostname *and* optional port).
+    if host_env.startswith(("http://", "https://")):
+        base = host_env  # full URL provided
+    else:
+        base = f"http://{host_env}:11434"
+
+    return f"{base}/api/generate"
+
+
+# Expose for other modules (mainly for debug/logging convenience)
+OLLAMA_URL = _build_ollama_url()
 
 # Timeout (in seconds) for requests to the Ollama server. Can be overridden
 # at runtime with the environment variable `OLLAMA_REQUEST_TIMEOUT` so that

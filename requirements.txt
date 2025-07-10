@@ -8,3 +8,11 @@ python-multipart
 aiohttp
 starlette
 rich
+boto3==1.34.0
+botocore==1.34.0
+pytest
+
+# Add dotenv support for environment variable loading
+python-dotenv>=1.0.0
+# Pin pymongo driver version
+pymongo>=4.5.0

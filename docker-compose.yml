@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     volumes:
@@ -14,22 +16,23 @@ services:
       mongo:
         condition: service_started
     environment:
-      - OLLAMA_HOST=host.docker.internal
-      - MONGODB_URI=mongodb+srv://question_bank:huH88r0YRTUrdwuM@cluster0.maske42.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+      - OLLAMA_HOST=http://ollama:11434
+      - MONGODB_URI=${MONGO_URI}
       - CONCURRENT_REQUESTS=2
       - OLLAMA_REQUEST_TIMEOUT=600
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
+      - AWS_REGION=${AWS_REGION:-us-east-2}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-pdf-question-bank}
+      - SQS_QUEUE_URL=${SQS_QUEUE_URL:-YOUR_SQS_QUEUE_URL}
+      - SQS_DLQ_URL=${SQS_DLQ_URL:-YOUR_SQS_DLQ_URL}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-YOUR_ACCESS_KEY}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-YOUR_SECRET_KEY}
+      - PROCESSING_TIMEOUT=${PROCESSING_TIMEOUT:-900}
+      - MAX_RETRY_ATTEMPTS=${MAX_RETRY_ATTEMPTS:-3}
 
   ollama:
     image: ollama/ollama
+    env_file:
+      - .env
     ports:
       - "11434:11434"
     volumes:
@@ -41,8 +44,7 @@ services:
       retries: 5
       start_period: 30s
     environment:
-      - OLLAMA_HOST=ollama
-      - MONGODB_URI=mongodb+srv://question_bank:huH88r0YRTUrdwuM@cluster0.maske42.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+      - OLLAMA_HOST=0.0.0.0:11434
       - OLLAMA_NUM_PARALLEL=2
 
   # Service to pull the mistral model
@@ -54,13 +56,8 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     environment:
-      - OLLAMA_HOST=ollama
-    command: >
-      sh -c "
-        echo 'Pulling mistral model...' &&
-        ollama pull mistral --host http://ollama:11434 &&
-        echo 'Mistral model ready!'
-      "
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["sh", "-c", "echo 'Pulling mistral model...' && OLLAMA_HOST=http://ollama:11434 ollama pull mistral && echo 'Mistral model ready!'"]
     restart: "no"
 
   mongo:
@@ -74,4 +71,4 @@ services:
 
 volumes:
   ollama_data:
-  mongo_data: 
+  mongo_data:

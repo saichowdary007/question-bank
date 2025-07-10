@@ -1,7 +1,9 @@
-import requests
-import aiohttp
 import os
 import logging
+from typing import Optional
+
+import requests
+import aiohttp
 
 # ---------------------------------------------------------------------------
 # Ollama endpoint configuration
@@ -53,17 +55,39 @@ def call_ollama_mistral(prompt: str):
         raise
 
 
+# ---------------------------------------------------------------------------
+# Shared aiohttp session – Step-1 optimisation
+# ---------------------------------------------------------------------------
+
+_aio_session: Optional[aiohttp.ClientSession] = None
+
+
+async def _get_session() -> aiohttp.ClientSession:
+    """Return a (lazily-initialised) shared ``aiohttp`` session."""
+    global _aio_session
+    if _aio_session is None or _aio_session.closed:
+        _aio_session = aiohttp.ClientSession()
+    return _aio_session
+
+
+async def close_async_session() -> None:  # used on FastAPI shutdown
+    global _aio_session
+    if _aio_session and not _aio_session.closed:
+        await _aio_session.close()
+
+
 async def call_ollama_mistral_async(prompt: str):
+    """Asynchronously call the Ollama endpoint using a shared HTTP session."""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                OLLAMA_URL,
-                json={"model": "mistral", "prompt": prompt, "stream": False},
-                timeout=aiohttp.ClientTimeout(total=OLLAMA_REQUEST_TIMEOUT),
-            ) as response:
-                response.raise_for_status()
-                data = await response.json()
-                return data.get("response", "").strip()
+        session = await _get_session()
+        async with session.post(
+            OLLAMA_URL,
+            json={"model": "mistral", "prompt": prompt, "stream": False},
+            timeout=aiohttp.ClientTimeout(total=OLLAMA_REQUEST_TIMEOUT),
+        ) as response:
+            response.raise_for_status()
+            data = await response.json()
+            return data.get("response", "").strip()
     except Exception as e:
         logging.error(f"❌ Error calling ollama async at {OLLAMA_URL}: {e}")
         raise

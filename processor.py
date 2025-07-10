@@ -17,6 +17,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 
+# Step-0: lightweight timing helper for micro-metrics
+from utils import timing
+
 from deduplication import is_similar_fast, model as dedup_model
 from llm_ollama import call_ollama_mistral
 from pdf_utils import extract_pages_from_pdf
@@ -197,7 +200,9 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
 
             try:
                 start_time = time.time()
-                pages = extract_pages_from_pdf(str(local_pdf))
+                # --- Page extraction ---------------------------------------------------
+                with timing("Page extraction"):
+                    pages = extract_pages_from_pdf(str(local_pdf))
                 logging.info("📄 Extracted %d pages", len(pages))
 
                 for page_num, page_text in enumerate(pages, start=1):

@@ -9,14 +9,11 @@ services:
       - "8000:8000"
     volumes:
       - ./temp_uploads:/app/temp_uploads
-      - ollama_data:/root/.ollama
     depends_on:
-      ollama:
-        condition: service_healthy
       mongo:
         condition: service_started
     environment:
-      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_HOST=http://host.docker.internal:11434
       - MONGODB_URI=${MONGO_URI}
       - CONCURRENT_REQUESTS=2
       - OLLAMA_REQUEST_TIMEOUT=600
@@ -28,37 +25,6 @@ services:
       - PROCESSING_TIMEOUT=${PROCESSING_TIMEOUT:-900}
       - MAX_RETRY_ATTEMPTS=${MAX_RETRY_ATTEMPTS:-3}
 
-  ollama:
-    image: ollama/ollama
-    env_file:
-      - .env
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    environment:
-      - OLLAMA_HOST=0.0.0.0:11434
-      - OLLAMA_NUM_PARALLEL=2
-
-  # Service to pull the mistral model
-  ollama-setup:
-    image: ollama/ollama
-    depends_on:
-      ollama:
-        condition: service_healthy
-    volumes:
-      - ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_HOST=http://ollama:11434
-    entrypoint: ["sh", "-c", "echo 'Pulling mistral model...' && OLLAMA_HOST=http://ollama:11434 ollama pull mistral && echo 'Mistral model ready!'"]
-    restart: "no"
-
   mongo:
     image: mongo:7
     ports:
@@ -69,5 +35,4 @@ services:
       - MONGO_INITDB_DATABASE=question_bank
 
 volumes:
-  ollama_data:
   mongo_data:

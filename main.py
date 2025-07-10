@@ -22,6 +22,10 @@ from fastapi.responses import StreamingResponse
 import torch
 from processor import PDFProcessor
 
+# FastAPI shutdown hook – ensures the shared aiohttp session from llm_ollama
+# is gracefully closed so the event loop can exit cleanly.
+from llm_ollama import close_async_session
+
 app = FastAPI()
 
 # Global state for processing status
@@ -217,6 +221,17 @@ def _start_pdf_processor():
     except Exception as exc:
         logging.warning("⚠️  Could not start PDFProcessor: %s - running in local mode", exc)
         logging.info("📝 API endpoints will still be available for manual file uploads")
+
+
+# ---------------------------------------------------------------------------
+# Shutdown – close shared HTTP resources
+# ---------------------------------------------------------------------------
+
+
+@app.on_event("shutdown")
+async def _shutdown_async_resources() -> None:
+    """Gracefully close any global async resources before process exit."""
+    await close_async_session()
 
 
 @app.get("/health")

@@ -48,6 +48,7 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
         queue_service: QueueService | None = None,
         bucket_name: str | None = None,
         queue_url: str | None = None,
+        require_queue: bool = True,
     ) -> None:
         self.s3 = s3_service or S3Service()
         self.sqs = queue_service or QueueService()
@@ -57,7 +58,10 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
         # CloudWatch client for custom metrics (optional local usage)
         self.cloudwatch = boto3.client("cloudwatch", region_name=self.s3.region_name)
 
-        if not self.queue_url:
+        # Require an SQS queue only when the processor is intended to run in
+        # *event-driven* mode. For simple “scan bucket for PDFs” workflows we
+        # allow instantiation without a queue.
+        if require_queue and not self.queue_url:
             raise ValueError("SQS_QUEUE_URL environment variable must be set")
 
         # Cache existing questions + embeddings once per processor lifetime
@@ -94,6 +98,42 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                 except Exception as exc:  # pragma: no cover
                     logging.exception("❌ Error processing message: %s", exc)
                     # Let the message return to the queue (handled by DLQ after N attempts)
+
+    def scan_bucket_and_process_forever(
+        self,
+        prefix: str = "incoming/",
+        poll_interval: int = 10,
+    ) -> None:
+        """Continuously scan *prefix* in the configured S3 bucket and process
+        each discovered PDF until none remain. Intended for simple setups
+        without SQS where users upload PDFs directly to S3.
+        """
+
+        logging.info(
+            "🛰️  Starting S3 polling loop (bucket=%s, prefix=%s)",
+            self.bucket_name,
+            prefix,
+        )
+
+        while True:
+            # List *only* incoming PDFs so we don’t repeatedly touch files that
+            # were already moved to *processing/* or *completed/*.
+            keys = [
+                k
+                for k in self.s3.list_files(self.bucket_name, prefix=prefix)
+                if k.lower().endswith(".pdf")
+            ]
+
+            if not keys:
+                # Nothing to do – back-off before the next poll
+                time.sleep(poll_interval)
+                continue
+
+            for key in keys:
+                try:
+                    self._process_pdf(self.bucket_name, key)
+                except Exception as exc:  # pragma: no cover
+                    logging.exception("❌ Error processing %s: %s", key, exc)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -182,9 +222,17 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                 elapsed = time.time() - start_time
                 logging.info("✅ Finished processing in %.1fs", elapsed)
 
-                # Move to completed
+                # Move to completed and immediately delete to free up space
                 self.s3.move_file(bucket, processing_key, completed_key)
                 logging.info("🎉 Moved to %s", completed_key)
+
+                # Permanently remove the processed PDF – ignore failures so the
+                # main processing result is still considered successful.
+                try:
+                    self.s3.delete_file(bucket, completed_key)
+                    logging.info("🗑️  Deleted %s", completed_key)
+                except Exception as del_exc:  # pragma: no cover – network issues in tests
+                    logging.warning("⚠️  Could not delete %s: %s", completed_key, del_exc)
 
                 upsert_processing_state(
                     key,

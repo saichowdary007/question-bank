@@ -198,8 +198,16 @@ def _start_pdf_processor():
     sqs_queue_url = os.getenv("SQS_QUEUE_URL", "").strip()
     
     if not sqs_queue_url:
-        logging.info("🔧 SQS_QUEUE_URL not configured - running in local development mode (no background processing)")
-        logging.info("📝 API endpoints will still be available for manual file uploads")
+        logging.info("🔧 SQS_QUEUE_URL not configured – falling back to direct S3 polling mode")
+
+        # Start a background thread that continuously scans the bucket for
+        # *incoming/* PDFs and processes them one-by-one.
+        try:
+            pdf_processor = PDFProcessor(require_queue=False)
+            threading.Thread(target=pdf_processor.scan_bucket_and_process_forever, daemon=True).start()
+            logging.info("🚀 PDFProcessor S3 polling thread started (bucket=%s)", pdf_processor.bucket_name)
+        except Exception as exc:
+            logging.warning("⚠️  Could not start S3 polling processor: %s – running in manual mode", exc)
         return
     
     try:
@@ -222,6 +230,10 @@ async def runtime_status():
     """Return basic queue metrics to aid monitoring/alerting."""
     if pdf_processor is None:
         return {"status": "initialising"}
+
+    if not pdf_processor.queue_url:
+        # Running in direct S3 polling mode – no SQS metrics available
+        return {"status": "s3-polling", "bucket": pdf_processor.bucket_name}
 
     attrs = pdf_processor.sqs.get_queue_attributes(pdf_processor.queue_url)
     return {

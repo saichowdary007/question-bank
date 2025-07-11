@@ -183,7 +183,7 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
 
         # Derive lifecycle keys
         processing_key = key.replace("incoming/", "processing/")
-        completed_key = key.replace("incoming/", "completed/")
+        completed_key = key.replace("incoming/", "archived/")
         failed_key = key.replace("incoming/", "failed/")
 
         # Move → processing so other workers do not pick it up again
@@ -227,17 +227,9 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                 elapsed = time.time() - start_time
                 logging.info("✅ Finished processing in %.1fs", elapsed)
 
-                # Move to completed and immediately delete to free up space
+                # Move to archived – keep the PDF for storage
                 self.s3.move_file(bucket, processing_key, completed_key)
-                logging.info("🎉 Moved to %s", completed_key)
-
-                # Permanently remove the processed PDF – ignore failures so the
-                # main processing result is still considered successful.
-                try:
-                    self.s3.delete_file(bucket, completed_key)
-                    logging.info("🗑️  Deleted %s", completed_key)
-                except Exception as del_exc:  # pragma: no cover – network issues in tests
-                    logging.warning("⚠️  Could not delete %s: %s", completed_key, del_exc)
+                logging.info("🎉 Archived to %s", completed_key)
 
                 upsert_processing_state(
                     key,

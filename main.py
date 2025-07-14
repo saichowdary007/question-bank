@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, WebSocket, Body
+from fastapi import FastAPI, Request, WebSocket, Body, UploadFile, File, Form
 from fastapi.responses import FileResponse, PlainTextResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 import os, shutil, json, asyncio, re, aiohttp  # type: ignore
@@ -21,6 +21,7 @@ import threading
 from fastapi.responses import StreamingResponse
 import torch
 from processor import PDFProcessor
+from s3_service import S3Service
 
 # FastAPI shutdown hook – ensures the shared aiohttp session from llm_ollama
 # is gracefully closed so the event loop can exit cleanly.
@@ -33,8 +34,8 @@ ProcessingStatus = Literal["idle", "processing", "complete", "error"]
 processing_status: ProcessingStatus = "idle"
 
 origins = [
-    # Frontend removed – restrict to local backend calls only
     "http://localhost",
+    "http://localhost:3000",
 ]
 
 app.add_middleware(
@@ -416,3 +417,48 @@ async def proxy_ollama_generate(payload: dict = Body(...)):
                 return JSONResponse(content=data)
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+# ---------------------------------------------------------------------------
+# 📤 File upload endpoint – Frontend ➜ Backend ➜ S3 ➜ Processor
+# ---------------------------------------------------------------------------
+
+
+@app.post("/upload-pdf/")
+async def upload_pdf(
+    file: UploadFile = File(...),
+    class_name: str = Form(...),
+    subject: str = Form(...),
+    chapter: str = Form(...),
+):
+    """Receive a PDF from the frontend along with *grade*, *subject* and
+    *chapter* information and store it in S3 under the **incoming/** prefix so
+    that the existing processor picks it up automatically.
+
+    The resulting key will look like::
+
+        incoming/<grade>/<subject>/<chapter>/<original_filename>
+    """
+
+    import re
+
+    # Sanitise path segments (replace spaces & special chars with dashes)
+    def _slugify(value: str) -> str:
+        return re.sub(r"[^A-Za-z0-9\-]+", "-", value.strip()).strip("-").lower()
+
+    grade_slug = _slugify(class_name)
+    subject_slug = _slugify(subject)
+    chapter_slug = _slugify(chapter)
+
+    s3_key = f"incoming/{grade_slug}/{subject_slug}/{chapter_slug}/{file.filename}"
+
+    bucket_name = os.getenv("S3_BUCKET_NAME", "pdf-question-bank")
+
+    try:
+        s3 = S3Service()
+        # Upload the file object directly to S3
+        s3._client.upload_fileobj(file.file, bucket_name, s3_key)
+        logging.info("📤 Uploaded %s to s3://%s/%s", file.filename, bucket_name, s3_key)
+        return {"detail": "File uploaded", "key": s3_key}
+    except Exception as exc:  # pragma: no cover – network/IO errors in dev env
+        logging.exception("❌ Failed to upload PDF to S3: %s", exc)
+        return JSONResponse(status_code=500, content={"detail": f"Upload failed: {exc}"})

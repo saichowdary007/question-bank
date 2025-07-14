@@ -57,6 +57,9 @@ def _convert_question_for_export(q: dict) -> dict:
     ):
         return {
             "_id": {"$oid": str(q.get("_id"))},
+            "grade": q.get("grade"),
+            "subject": q.get("subject"),
+            "chapter": q.get("chapter"),
             "question_type": q["question_type"],
             "question_name": q["question_name"],
             "correct_answer": q["correct_answer"],
@@ -133,6 +136,9 @@ def _convert_question_for_export(q: dict) -> dict:
 
     return {
         "_id": {"$oid": str(q.get("_id"))},
+        "grade": q.get("grade"),
+        "subject": q.get("subject"),
+        "chapter": q.get("chapter"),
         "question_type": "single_choice",
         "question_name": question_text,
         "correct_answer": correct_key,

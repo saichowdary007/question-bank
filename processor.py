@@ -205,6 +205,12 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                     pages = extract_pages_from_pdf(str(local_pdf))
                 logging.info("📄 Extracted %d pages", len(pages))
 
+                # Extract metadata from the original S3 key (incoming/<grade>/<subject>/<chapter>/...)
+                parts = key.split("/")
+                grade_meta = parts[1] if len(parts) > 1 else None
+                subject_meta = parts[2] if len(parts) > 2 else None
+                chapter_meta = parts[3] if len(parts) > 3 else None
+
                 for page_num, page_text in enumerate(pages, start=1):
                     prompt = _build_prompt(page_text)
                     response_text = call_ollama_mistral(prompt)
@@ -222,6 +228,13 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                         continue
 
                     for q_obj in q_objects:
+                        # Attach metadata so it is persisted alongside the question
+                        if grade_meta:
+                            q_obj["grade"] = grade_meta
+                        if subject_meta:
+                            q_obj["subject"] = subject_meta
+                        if chapter_meta:
+                            q_obj["chapter"] = chapter_meta
                         self._persist_question(q_obj)
 
                 elapsed = time.time() - start_time
@@ -285,13 +298,25 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
         else:
             correct_key = "a"
 
-        saved_question = {
+        # Build the document with metadata keys first (if present) so they
+        # appear right after the automatically added ``_id`` field in MongoDB.
+        saved_question = {}
+
+        # Insert contextual metadata in deterministic order
+        for field in ("grade", "subject", "chapter"):
+            if q_obj.get(field) is not None:
+                saved_question[field] = q_obj[field]
+
+        # Insert the core question fields *after* metadata so the final
+        # document order is: _id, grade, subject, chapter, question_type, ...
+        saved_question.update({
             "question_type": "single_choice",
             "question_name": question_text,
             "correct_answer": correct_key,
             "options": option_map,
             "__v": 0,
-        }
+        })
+
         save_question(saved_question)
         # Extend local cache for later duplicate detection
         self._existing_questions.append(question_text)

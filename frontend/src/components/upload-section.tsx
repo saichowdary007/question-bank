@@ -16,9 +16,10 @@ interface UploadSectionProps {
 
 const UploadSection = ({ setProcessingState, setLogs, processingState, resetSession }: UploadSectionProps) => {
   const [file, setFile] = useState<File | null>(null);
-  const [className, setClassName] = useState("7");
-  const [subject, setSubject] = useState("Science");
-  const [chapter, setChapter] = useState("Chapter 1");
+  // Grade (1-10) and Subject dropdown defaults
+  const [className, setClassName] = useState("Select Grade");
+  const [subject, setSubject] = useState("Select Subject");
+  const [chapter, setChapter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState({ title: "", description: "" });
@@ -121,26 +122,41 @@ const UploadSection = ({ setProcessingState, setLogs, processingState, resetSess
             )}
           </div>
           <div className="grid w-full max-w-sm items-center gap-1.5">
-            <Label htmlFor="class-name">Class</Label>
-            <Input 
-              id="class-name" 
-              type="text" 
-              value={className} 
-              onChange={(e) => setClassName(e.target.value)} 
+            <Label htmlFor="class-name">Grade</Label>
+            <select
+              id="class-name"
+              value={className}
+              onChange={(e) => setClassName(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isDisabled}
               required
-            />
+            >
+              <option value="1">1st Grade</option>
+              <option value="2">2nd Grade</option>
+              <option value="3">3rd Grade</option>
+              <option value="4">4th Grade</option>
+              <option value="5">5th Grade</option>
+              <option value="6">6th Grade</option>
+              <option value="7">7th Grade</option>
+              <option value="8">8th Grade</option>
+              <option value="9">9th Grade</option>
+              <option value="10">10th Grade</option>
+            </select>
           </div>
           <div className="grid w-full max-w-sm items-center gap-1.5">
             <Label htmlFor="subject">Subject</Label>
-            <Input 
-              id="subject" 
-              type="text" 
-              value={subject} 
-              onChange={(e) => setSubject(e.target.value)} 
+            <select
+              id="subject"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isDisabled}
               required
-            />
+            >
+              <option value="Math">Math</option>
+              <option value="Science">Science</option>
+              <option value="Social">Social</option>
+            </select>
           </div>
           <div className="grid w-full max-w-sm items-center gap-1.5">
             <Label htmlFor="chapter">Chapter</Label>

@@ -27,6 +27,13 @@ from s3_service import S3Service
 # is gracefully closed so the event loop can exit cleanly.
 from llm_ollama import close_async_session
 
+def _slugify(value: str) -> str:
+    """
+    Normalizes string, converts to lowercase, removes non-alpha characters,
+    and converts spaces to hyphens.
+    """
+    return re.sub(r'[^a-z0-9_]+', '-', value.lower()).strip('-')
+
 app = FastAPI()
 
 # Global state for processing status
@@ -423,40 +430,41 @@ async def proxy_ollama_generate(payload: dict = Body(...)):
 # ---------------------------------------------------------------------------
 
 
-@app.post("/upload-pdf/")
-async def upload_pdf(
-    file: UploadFile = File(...),
-    class_name: str = Form(...),
+@app.post("/api/upload")
+async def upload_file(
+    grade: str = Form(...),
     subject: str = Form(...),
-    chapter: str = Form(...),
+    topic: str = Form(...),
+    file: UploadFile = File(...),
 ):
-    """Receive a PDF from the frontend along with *grade*, *subject* and
-    *chapter* information and store it in S3 under the **incoming/** prefix so
-    that the existing processor picks it up automatically.
-
-    The resulting key will look like::
-
-        incoming/<grade>/<subject>/<chapter>/<original_filename>
     """
+    This endpoint receives a file and its metadata, saves it to a temporary location,
+    and then queues it for processing.
 
-    import re
+    The metadata includes *grade*, *subject*, and *topic* information and store it in S3 under the **incoming/** prefix so
+    that the processor can use it to enrich the question bank data.
+    The S3 key will be:
+        incoming/<grade>/<subject>/<topic>/<original_filename>
 
-    # Sanitise path segments (replace spaces & special chars with dashes)
-    def _slugify(value: str) -> str:
-        return re.sub(r"[^A-Za-z0-9\-]+", "-", value.strip()).strip("-").lower()
-
-    grade_slug = _slugify(class_name)
-    subject_slug = _slugify(subject)
-    chapter_slug = _slugify(chapter)
-
-    s3_key = f"incoming/{grade_slug}/{subject_slug}/{chapter_slug}/{file.filename}"
-
-    bucket_name = os.getenv("S3_BUCKET_NAME", "pdf-question-bank")
-
+    """
     try:
-        s3 = S3Service()
+        # Create a slug for the grade, subject, and topic
+        grade_slug = _slugify(grade)
+        subject_slug = _slugify(subject)
+        topic_slug = _slugify(topic)
+        s3_key = f"incoming/{grade_slug}/{subject_slug}/{topic_slug}/{file.filename}"
+
+        bucket_name = os.getenv("S3_BUCKET_NAME", "pdf-question-bank")
+
+        # Save the uploaded file to a temporary location
+        temp_file_path = f"temp_uploads/{file.filename}"
+        with open(temp_file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
         # Upload the file object directly to S3
-        s3._client.upload_fileobj(file.file, bucket_name, s3_key)
+        s3 = S3Service()
+        s3.upload_file(temp_file_path, bucket_name, s3_key)
+
         logging.info("📤 Uploaded %s to s3://%s/%s", file.filename, bucket_name, s3_key)
         return {"detail": "File uploaded", "key": s3_key}
     except Exception as exc:  # pragma: no cover – network/IO errors in dev env

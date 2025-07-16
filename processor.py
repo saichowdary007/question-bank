@@ -41,6 +41,33 @@ SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "")
 PROCESSING_TIMEOUT = int(os.getenv("PROCESSING_TIMEOUT", "900"))  # seconds
 CONCURRENT_REQUESTS = int(os.getenv("CONCURRENT_REQUESTS", "1"))  # placeholder
 
+# After imports and configuration, insert the mapping constants
+
+# -----------------------------------------------------------------------------
+# Grade and subject code mappings for MongoDB storage
+# -----------------------------------------------------------------------------
+
+# Map various frontend / path representations to canonical grade codes
+GRADE_CODE_MAP: dict[str, str] = {
+    # Kindergarten
+    "kinder-garten": "K1",
+    "kinder garten": "K1",
+    "kindergarten": "K1",
+    "kg": "K1",
+    "0": "K1",
+    # Grades 1 – 10
+    **{str(i): f"G{i}" for i in range(1, 11)},
+}
+
+# Map subject names to canonical codes
+SUBJECT_CODE_MAP: dict[str, str] = {
+    "english": "ENG",
+    "math": "MAT",
+    "maths": "MAT",
+    "science": "SCI",
+    "social": "SOC",
+}
+
 
 class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
     """High-level orchestrator that pulls messages and processes PDFs one-by-one."""
@@ -205,11 +232,11 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                     pages = extract_pages_from_pdf(str(local_pdf))
                 logging.info("📄 Extracted %d pages", len(pages))
 
-                # Extract metadata from the original S3 key (incoming/<grade>/<subject>/<chapter>/...)
+                # Extract metadata from the original S3 key (incoming/<grade>/<subject>/<topic>/...)
                 parts = key.split("/")
                 grade_meta = parts[1] if len(parts) > 1 else None
                 subject_meta = parts[2] if len(parts) > 2 else None
-                chapter_meta = parts[3] if len(parts) > 3 else None
+                topic_meta = parts[3] if len(parts) > 3 else None
 
                 for page_num, page_text in enumerate(pages, start=1):
                     prompt = _build_prompt(page_text)
@@ -233,8 +260,8 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                             q_obj["grade"] = grade_meta
                         if subject_meta:
                             q_obj["subject"] = subject_meta
-                        if chapter_meta:
-                            q_obj["chapter"] = chapter_meta
+                        if topic_meta:
+                            q_obj["topic"] = topic_meta
                         self._persist_question(q_obj)
 
                 elapsed = time.time() - start_time
@@ -303,12 +330,28 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
         saved_question = {}
 
         # Insert contextual metadata in deterministic order
-        for field in ("grade", "subject", "chapter"):
-            if q_obj.get(field) is not None:
-                saved_question[field] = q_obj[field]
+        for field in ("grade", "subject", "topic"):
+            raw_val = q_obj.get(field)
+            if raw_val is None:
+                continue
+
+            # Normalise and translate grade/subject values to their canonical
+            # codes expected in MongoDB. Any value that does not have an
+            # explicit mapping falls back to the original input so we do not
+            # inadvertently drop information.
+            if field == "grade":
+                key = str(raw_val).strip().lower()
+                saved_val = GRADE_CODE_MAP.get(key, raw_val)
+            elif field == "subject":
+                key = str(raw_val).strip().lower()
+                saved_val = SUBJECT_CODE_MAP.get(key, raw_val)
+            else:
+                saved_val = raw_val
+
+            saved_question[field] = saved_val
 
         # Insert the core question fields *after* metadata so the final
-        # document order is: _id, grade, subject, chapter, question_type, ...
+        # document order is: _id, grade, subject, topic, question_type, ...
         saved_question.update({
             "question_type": "single_choice",
             "question_name": question_text,
@@ -325,9 +368,9 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                 self._existing_questions, convert_to_tensor=True
             )
 
-# -----------------------------------------------------------------------------
-# CloudWatch helper
-# -----------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------
+    # CloudWatch helper
+    # -----------------------------------------------------------------------------
 
     def _publish_metric(self, name: str, value: int) -> None:
         """Send a custom metric datapoint to CloudWatch (best-effort)."""

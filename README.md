@@ -143,7 +143,7 @@ python run_server.py
 ### 1. Upload PDF
 - Access the frontend at http://localhost:3000
 - Upload a PDF file with educational content
-- Specify class, subject, and chapter information
+- Specify grade, subject, and topic information
 
 ### 2. Monitor Processing
 - Real-time logs show processing progress

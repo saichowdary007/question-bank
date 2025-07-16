@@ -16,10 +16,10 @@ interface UploadSectionProps {
 
 const UploadSection = ({ setProcessingState, setLogs, processingState, resetSession }: UploadSectionProps) => {
   const [file, setFile] = useState<File | null>(null);
-  // Grade (1-10) and Subject dropdown defaults
-  const [className, setClassName] = useState("Select Grade");
+  // Grade and Subject dropdown defaults - start with placeholders
+  const [grade, setGrade] = useState("Select Grade");
   const [subject, setSubject] = useState("Select Subject");
-  const [chapter, setChapter] = useState("");
+  const [topic, setTopic] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState({ title: "", description: "" });
@@ -51,6 +51,14 @@ const UploadSection = ({ setProcessingState, setLogs, processingState, resetSess
       setError("Please select a file to upload.");
       return;
     }
+    if (grade === "Select Grade") {
+      setError("Please select a grade.");
+      return;
+    }
+    if (subject === "Select Subject") {
+      setError("Please select a subject.");
+      return;
+    }
     setError(null);
     setLogs([]);
     // 1. Mark that backend will continue processing (used for log viewer)
@@ -60,13 +68,13 @@ const UploadSection = ({ setProcessingState, setLogs, processingState, resetSess
 
     const formData = new FormData();
     formData.append("file", file);
-    formData.append("class_name", className);
+    formData.append("grade", grade);
     formData.append("subject", subject);
-    formData.append("chapter", chapter);
+    formData.append("topic", topic);
 
     try {
       const backendBase = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
-      const response = await fetch(`${backendBase}/upload-pdf/`, {
+      const response = await fetch(`${backendBase}/api/upload`, {
         method: "POST",
         body: formData,
       });
@@ -122,15 +130,16 @@ const UploadSection = ({ setProcessingState, setLogs, processingState, resetSess
             )}
           </div>
           <div className="grid w-full max-w-sm items-center gap-1.5">
-            <Label htmlFor="class-name">Grade</Label>
+            <Label htmlFor="grade">Grade</Label>
             <select
-              id="class-name"
-              value={className}
-              onChange={(e) => setClassName(e.target.value)}
+              id="grade"
+              value={grade}
+              onChange={(e) => setGrade(e.target.value)}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isDisabled}
-              required
             >
+              <option value="Select Grade" disabled>Select Grade</option>
+              <option value="Kinder Garten">Kinder Garten</option>
               <option value="1">1st Grade</option>
               <option value="2">2nd Grade</option>
               <option value="3">3rd Grade</option>
@@ -151,20 +160,21 @@ const UploadSection = ({ setProcessingState, setLogs, processingState, resetSess
               onChange={(e) => setSubject(e.target.value)}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isDisabled}
-              required
             >
+              <option value="Select Subject" disabled>Select Subject</option>
+              <option value="English">English</option>
               <option value="Math">Math</option>
               <option value="Science">Science</option>
               <option value="Social">Social</option>
             </select>
           </div>
           <div className="grid w-full max-w-sm items-center gap-1.5">
-            <Label htmlFor="chapter">Chapter</Label>
+            <Label htmlFor="topic">Topic</Label>
             <Input 
-              id="chapter" 
+              id="topic" 
               type="text" 
-              value={chapter} 
-              onChange={(e) => setChapter(e.target.value)} 
+              value={topic} 
+              onChange={(e) => setTopic(e.target.value)} 
               disabled={isDisabled}
               required
             />

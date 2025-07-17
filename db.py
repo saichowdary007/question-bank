@@ -15,9 +15,17 @@ import shutil
 mongo_uri = os.environ.get("MONGODB_URI") or os.environ.get("MONGO_URI")
 if not mongo_uri:
     raise RuntimeError("Environment variable MONGODB_URI or MONGO_URI must be set")
+
+# ✅ Get DB and Collection names from environment variables
+db_name = os.environ.get("DB_NAME")
+collection_name = os.environ.get("COLLECTION_NAME")
+
+if not db_name or not collection_name:
+    raise RuntimeError("Environment variables DB_NAME and COLLECTION_NAME must be set")
+
 client = MongoClient(mongo_uri)
-db = client["question_bank"]
-collection = db["questions"]
+db = client[db_name]
+collection = db[collection_name]
 process_collection = db["processing_state"]
 
 

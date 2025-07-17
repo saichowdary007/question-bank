@@ -32,7 +32,7 @@ services:
     volumes:
       - mongo_data:/data/db
     environment:
-      - MONGO_INITDB_DATABASE=question_bank
+      - MONGO_INITDB_DATABASE=LEARNKIDZ_QUESTION_BANK
 
   frontend:
     build:

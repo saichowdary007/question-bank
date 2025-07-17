@@ -210,7 +210,7 @@ question-bank/
 
 ## 🚨 Troubleshooting
 
-### Common Issues
+### Common Issue
 
 1. **Ollama 404 Errors**
    ```bash

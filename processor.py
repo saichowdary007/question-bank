@@ -16,6 +16,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Any, Dict
+import re  # Added for option text normalisation
 
 # Step-0: lightweight timing helper for micro-metrics
 from utils import timing
@@ -312,10 +313,41 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
 
         # Normalize options
         raw_options = q_obj.get("options", [])
+
+        def _strip_label(txt: str) -> str:
+            """Remove leading labels like 'A)', 'B.', etc. and trim."""
+            if not isinstance(txt, str):
+                return txt  # bail out early for non-strings
+            return re.sub(r"^\s*[A-Da-d][).]\s*", "", txt).strip()
+
+        option_map: dict[str, str] = {}
+
+        # Case 1 – LLM returned a plain list → map directly to a–d after cleaning
         if isinstance(raw_options, list):
-            option_map = {k: v for k, v in zip(["a", "b", "c", "d"], raw_options)}
+            cleaned = [_strip_label(opt) for opt in raw_options if isinstance(opt, str)]
+            option_map = {k: v for k, v in zip(["a", "b", "c", "d"], cleaned)}
+
+        # Case 2 – LLM returned a dict
         elif isinstance(raw_options, dict):
-            option_map = {k.lower(): v for k, v in raw_options.items()}
+            temp_map = {k.lower(): v for k, v in raw_options.items()}
+
+            # Occasionally the model puts *all* options inside the first key (usually 'a').
+            # Detect this by checking for only one key and presence of markers like 'B)' within
+            # the value, then split the string accordingly.
+            if len(temp_map) == 1:
+                combined_val = list(temp_map.values())[0]
+                if isinstance(combined_val, str) and any(f"{ch})" in combined_val for ch in "BCD"):
+                    # Ensure we have an 'A)' marker to simplify splitting logic
+                    candidate = combined_val if "A)" in combined_val[:3] else f"A) {combined_val}"
+                    parts = re.split(r"\s*[A-D]\)\s*", candidate)
+                    parts = [p.strip(" ,") for p in parts if p.strip()]
+                    option_map = {k: _strip_label(v) for k, v in zip(["a", "b", "c", "d"], parts)}
+                else:
+                    option_map = {list(temp_map.keys())[0]: _strip_label(combined_val)}
+            else:
+                option_map = {k: _strip_label(v) if isinstance(v, str) else v for k, v in temp_map.items()}
+
+        # Fallback – unexpected structure
         else:
             option_map = {}
 

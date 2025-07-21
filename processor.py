@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict
 import re  # Added for option text normalisation
+from urllib.parse import unquote_plus  # Added for robust S3 key handling
 
 # Step-0: lightweight timing helper for micro-metrics
 from utils import timing
@@ -187,11 +188,15 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
         record = (payload.get("Records") or [payload])[0]
         s3_info = record.get("s3", {})
         bucket = s3_info.get("bucket", {}).get("name", self.bucket_name)
-        key = s3_info.get("object", {}).get("key")
+        raw_key = s3_info.get("object", {}).get("key")
         size = s3_info.get("object", {}).get("size")
-        if not key:
+        if not raw_key:
             logging.warning("S3 key not found in message – skipping")
             return
+
+        # Keys coming from S3 event notifications may be URL-encoded. Decode them so
+        # downstream logic (prefix swapping, local file names, etc.) works reliably.
+        key = unquote_plus(raw_key)
 
         logging.info("📝 Received task for s3://%s/%s", bucket, key)
 
@@ -210,9 +215,9 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
         """Download, generate questions, store in DB, and move file through lifecycle."""
 
         # Derive lifecycle keys
-        processing_key = key.replace("incoming/", "processing/")
-        completed_key = key.replace("incoming/", "archived/")
-        failed_key = key.replace("incoming/", "failed/")
+        processing_key = _swap_prefix(key, "incoming/", "processing/")
+        completed_key = _swap_prefix(key, "incoming/", "archived/")
+        failed_key = _swap_prefix(key, "incoming/", "failed/")
 
         # Move → processing so other workers do not pick it up again
         self.s3.move_file(bucket, key, processing_key)
@@ -256,6 +261,14 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                         continue
 
                     for q_obj in q_objects:
+                        # Guard against malformed items (e.g. strings or lists)
+                        if not isinstance(q_obj, dict):
+                            logging.warning(
+                                "Skipping malformed question object on page %d: %s",
+                                page_num,
+                                str(q_obj)[:80],
+                            )
+                            continue
                         # Attach metadata so it is persisted alongside the question
                         if grade_meta:
                             q_obj["grade"] = grade_meta
@@ -424,6 +437,14 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
 # -----------------------------------------------------------------------------
 # Helper – prompt builder (kept minimal on purpose)
 # -----------------------------------------------------------------------------
+
+def _swap_prefix(key: str, old: str, new: str) -> str:
+    """Return *key* with *old* prefix replaced by *new* **only if** it starts with *old*.
+
+    This avoids accidental substitutions when the string *old* occurs elsewhere
+    in the key path.
+    """
+    return f"{new}{key[len(old):]}" if key.startswith(old) else key
 
 def _build_prompt(page_text: str) -> str:
     """Return the system prompt used for MCQ generation."""

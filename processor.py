@@ -387,16 +387,16 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
             if field == "grade":
                 key = str(raw_val).strip().lower()
                 saved_val = GRADE_CODE_MAP.get(key, raw_val)
+                saved_question["CID"] = saved_val
             elif field == "subject":
                 key = str(raw_val).strip().lower()
                 saved_val = SUBJECT_CODE_MAP.get(key, raw_val)
+                saved_question["SCID"] = saved_val
             else:
-                saved_val = raw_val
-
-            saved_question[field] = saved_val
+                saved_question[field] = raw_val
 
         # Insert the core question fields *after* metadata so the final
-        # document order is: _id, grade, subject, topic, question_type, ...
+        # document order is: _id, CID, SCID, topic, question_type, ...
         saved_question.update({
             "question_type": "single_choice",
             "question_name": question_text,
@@ -449,4 +449,4 @@ def _swap_prefix(key: str, old: str, new: str) -> str:
 def _build_prompt(page_text: str) -> str:
     """Return the system prompt used for MCQ generation."""
 
-    return f"""You are an intelligent educational assistant.\n\nRead the following page excerpt from a school book (Grades 1–10) and identify its main educational concepts.\n\n**CONTENT VALIDATION FIRST:**\n- If the text is empty, contains only page numbers, headers, footers, navigation elements, or lacks substantive educational content (less than 20 meaningful words), return: []\n- If the text is fragmented, corrupted, or incomprehensible, return: []\n\n**QUESTION GENERATION RULES:**\nOnly if content contains clear educational concepts:\n1. Generate 3-5 multiple-choice questions testing comprehension of main concepts\n2. Each question MUST be based on specific information in the text\n3. Do not generate questions about page numbers, headers, formatting, or information not in the text\n4. Each question must have exactly 4 options labeled A-D\n5. Only one option should be clearly correct\n6. Return ONLY valid JSON array format:\n\n[\n  {{\"question\": \"...\", \"options\": [\"A\", \"B\", \"C\", \"D\"], \"answer\": \"A\"}},\n  ...\n]\n\nText:\n\"\n{page_text}\n\"\n"""
+    return f"""YYou are an intelligent educational assistant.\n\nRead the following page excerpt from a school book (Grades 1–10) and identify its main educational concepts.\n\nCONTENT VALIDATION:\n- If the text is empty, contains only page numbers, headers, footers, navigation elements, or lacks substantive educational content (less than 30 meaningful words), return: []\n- If the text is fragmented, corrupted, or incomprehensible, return: []\n- Text must contain at least one clear educational concept with explanation\n\nCONCEPT VERIFICATION:\nBefore generating questions, check if the text contains:\n- Definitions, explanations, or descriptions of concepts\n- Processes, functions, or cause-and-effect relationships\n- Scientific facts or information with context\n- If no clear concepts are explained, return: []\n\nQUESTION GENERATION RULES:\nOnly if content contains clear educational concepts:\n1. Generate 3-5 multiple-choice questions testing comprehension of main concepts\n2. Each question MUST be based on specific information explained in the text\n3. AVOID these question types:\n   - "What is mentioned in this text?"\n   - "What does this text discuss?"\n   - "According to the figure shown..."\n   - Generic questions about page content\n4. Each question must have exactly 4 options labeled A-D with only one clearly correct answer\n5. Focus on testing understanding of key concepts, processes, or facts explained in the text\n6. If you cannot create at least 3 meaningful questions from the content, return: []\n\nOUTPUT FORMAT:\nReturn ONLY valid JSON array format:\n\n[\n  {{"question": "...", "options": ["A", "B", "C", "D"], "answer": "A"}},\n  ...\n]\n\nText:\n"\n{page_text}\n"\n"""

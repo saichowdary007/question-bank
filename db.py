@@ -144,8 +144,8 @@ def _convert_question_for_export(q: dict) -> dict:
 
     return {
         "_id": {"$oid": str(q.get("_id"))},
-        "grade": q.get("grade"),
-        "subject": q.get("subject"),
+        "CID": q.get("grade"),
+        "SCID": q.get("subject"),
         "topic": q.get("topic") or q.get("chapter"),
         "question_type": "single_choice",
         "question_name": question_text,

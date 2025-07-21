@@ -16,3 +16,4 @@ pytest
 python-dotenv>=1.0.0
 # Pin pymongo driver version
 pymongo>=4.5.0
+torch

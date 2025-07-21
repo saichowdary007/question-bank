@@ -35,6 +35,17 @@ class S3Service:
         copy_source = {"Bucket": bucket, "Key": source_key}
         try:
             self._client.copy(copy_source, bucket, dest_key)
+
+            # Ensure eventual consistency: wait until the destination object
+            # is actually visible before removing the source.  This prevents
+            # a (rare) race condition where the S3 copy appears complete but
+            # the object is not yet listed, leading to confusing GUI results.
+            try:
+                waiter = self._client.get_waiter("object_exists")
+                waiter.wait(Bucket=bucket, Key=dest_key)
+            except Exception:  # pragma: no cover – non-critical best-effort
+                pass
+
             self._client.delete_object(Bucket=bucket, Key=source_key)
         except (ClientError, BotoCoreError) as exc:
             # Propagate; caller decides how to handle

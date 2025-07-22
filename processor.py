@@ -19,14 +19,16 @@ from typing import Any, Dict
 import re  # Added for option text normalisation
 from urllib.parse import unquote_plus  # Added for robust S3 key handling
 import concurrent.futures  # For parallel Ollama requests
+import torch
+from sentence_transformers import util
 
 # Step-0: lightweight timing helper for micro-metrics
 from utils import timing
 
-from deduplication import is_similar_fast, model as dedup_model
+from deduplication import is_similar_fast, model as dedup_model, SIM_THRESHOLD
 from llm_ollama import call_ollama_mistral
 from pdf_utils import extract_pages_from_pdf
-from db import save_question, get_all_questions, upsert_processing_state
+from db import save_question, save_questions_bulk, get_all_questions, upsert_processing_state
 
 from s3_service import S3Service
 from queue_service import QueueService
@@ -249,20 +251,51 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                 prompt_items = [(idx, _build_prompt(txt)) for idx, txt in enumerate(pages, start=1)]
 
                 # Execute Ollama calls concurrently to maximise throughput
+                # ------------------------------------------------------------------
+                # Previous implementation only logged when each page *finished* which
+                # meant long silence periods for large/slow PDFs. We now log progress
+                # every ~5 seconds regardless of whether a page has completed so that
+                # the frontend log viewer can display liveness updates.
+                # ------------------------------------------------------------------
                 results: dict[int, str] = {}
                 with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENT_REQUESTS) as executor:
                     future_map = {
                         executor.submit(call_ollama_mistral, prompt): page_num
                         for page_num, prompt in prompt_items
                     }
-                    for future in concurrent.futures.as_completed(future_map):
-                        page_num = future_map[future]
-                        try:
-                            results[page_num] = future.result()
-                        except Exception as exc:
-                            logging.warning("Page %d failed: %s", page_num, exc)
 
-                # Process results in deterministic page order
+                    total_pages = len(future_map)
+                    completed_pages = 0
+                    last_log_time = time.time()
+
+                    pending_futures = set(future_map.keys())
+                    while pending_futures:
+                        # Wait for *any* future to complete or timeout after 5 s
+                        done, pending_futures = concurrent.futures.wait(
+                            pending_futures,
+                            timeout=5,
+                            return_when=concurrent.futures.FIRST_COMPLETED,
+                        )
+
+                        # Record results of finished pages
+                        for fut in done:
+                            page_num = future_map[fut]
+                            try:
+                                results[page_num] = fut.result()
+                            except Exception as exc:
+                                logging.warning("Page %d failed: %s", page_num, exc)
+                            completed_pages += 1
+
+                        # Emit periodic progress update even if nothing finished
+                        now = time.time()
+                        if now - last_log_time >= 5 or not pending_futures:
+                            logging.info(
+                                "⏱ Progress: %d/%d pages completed", completed_pages, total_pages
+                            )
+                            last_log_time = now
+
+                # Aggregate all question objects for bulk deduplication & persistence
+                all_q_objs: list[Dict[str, Any]] = []
                 for page_num in sorted(results):
                     response_text = results[page_num]
                     try:
@@ -294,7 +327,10 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                             q_obj["subject"] = subject_meta
                         if topic_meta:
                             q_obj["topic"] = topic_meta
-                        self._persist_question(q_obj)
+                        all_q_objs.append(q_obj)
+
+                # Bulk persist unique questions
+                self._persist_questions_batch(all_q_objs)
 
                 elapsed = time.time() - start_time
                 logging.info("✅ Finished processing in %.1fs", elapsed)
@@ -430,6 +466,118 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
             self._existing_embs = dedup_model.encode(
                 self._existing_questions, convert_to_tensor=True
             )
+
+    # -----------------------------------------------------------------------------
+    # CloudWatch helper
+    # -----------------------------------------------------------------------------
+
+    # -----------------------------------------------------------------------------
+    # Batch helpers  – deduplication & bulk persistence
+    # -----------------------------------------------------------------------------
+
+    def _build_saved_question(self, q_obj: Dict[str, Any]) -> dict | None:
+        """Normalise *q_obj* and return the Mongo-ready document or ``None``."""
+        question_text: str | None = q_obj.get("question") or q_obj.get("question_name")
+        if not question_text:
+            return None
+
+        # -- Options normalisation (replicated from _persist_question) ------------
+        raw_options = q_obj.get("options", [])
+
+        def _strip_label(txt: str) -> str:
+            if not isinstance(txt, str):
+                return txt
+            return re.sub(r"^\s*[A-Da-d][).]\s*", "", txt).strip()
+
+        option_map: dict[str, str] = {}
+        if isinstance(raw_options, list):
+            cleaned = [_strip_label(opt) for opt in raw_options if isinstance(opt, str)]
+            option_map = {k: v for k, v in zip(["a", "b", "c", "d"], cleaned)}
+        elif isinstance(raw_options, dict):
+            temp_map = {k.lower(): v for k, v in raw_options.items()}
+            if len(temp_map) == 1:
+                combined_val = list(temp_map.values())[0]
+                if isinstance(combined_val, str) and any(f"{ch})" in combined_val for ch in "BCD"):
+                    candidate = combined_val if "A)" in combined_val[:3] else f"A) {combined_val}"
+                    parts = re.split(r"\s*[A-D]\)\s*", candidate)
+                    parts = [p.strip(" ,") for p in parts if p.strip()]
+                    option_map = {k: _strip_label(v) for k, v in zip(["a", "b", "c", "d"], parts)}
+                else:
+                    option_map = {list(temp_map.keys())[0]: _strip_label(combined_val)}
+            else:
+                option_map = {k: _strip_label(v) if isinstance(v, str) else v for k, v in temp_map.items()}
+        else:
+            option_map = {}
+
+        answer_raw = str(q_obj.get("answer", "")).strip().upper()
+        correct_key = answer_raw.lower() if answer_raw in ["A", "B", "C", "D"] else "a"
+
+        saved_question: dict[str, Any] = {}
+        for field in ("grade", "subject", "topic"):
+            raw_val = q_obj.get(field)
+            if raw_val is None:
+                continue
+            if field == "grade":
+                key = str(raw_val).strip().lower()
+                saved_val = GRADE_CODE_MAP.get(key, raw_val)
+                saved_question["CID"] = saved_val
+            elif field == "subject":
+                key = str(raw_val).strip().lower()
+                saved_val = SUBJECT_CODE_MAP.get(key, raw_val)
+                saved_question["SCID"] = saved_val
+            else:
+                saved_question[field] = raw_val
+
+        saved_question.update({
+            "question_type": "single_choice",
+            "question_name": question_text,
+            "correct_answer": correct_key,
+            "options": option_map,
+            "__v": 0,
+        })
+        return saved_question
+
+    def _persist_questions_batch(self, q_objs: list[Dict[str, Any]]) -> None:
+        """Deduplicate *q_objs* in bulk and persist the unique ones."""
+        if not q_objs:
+            return
+
+        # Build normalised docs & corresponding text list
+        docs: list[dict] = []
+        texts: list[str] = []
+        for q in q_objs:
+            doc = self._build_saved_question(q)
+            if doc is None:
+                continue
+            docs.append(doc)
+            texts.append(doc["question_name"])
+
+        if not docs:
+            return
+
+        new_embs = dedup_model.encode(texts, convert_to_tensor=True)
+
+        if self._existing_embs is None or self._existing_embs.numel() == 0:
+            unique_idx = torch.arange(new_embs.size(0))
+        else:
+            dup_mask = (util.cos_sim(new_embs, self._existing_embs) > SIM_THRESHOLD).any(dim=1)
+            unique_idx = (~dup_mask).nonzero(as_tuple=True)[0]
+
+        if len(unique_idx) == 0:
+            return  # all duplicates
+
+        unique_docs = [docs[i] for i in unique_idx]
+        unique_embs = new_embs[unique_idx]
+
+        # Bulk insert
+        save_questions_bulk(unique_docs)
+
+        # Cache update for future deduplication rounds
+        if self._existing_embs is None or self._existing_embs.numel() == 0:
+            self._existing_embs = unique_embs
+        else:
+            self._existing_embs = torch.cat([self._existing_embs, unique_embs], dim=0)
+        self._existing_questions.extend([texts[i] for i in unique_idx])
 
     # -----------------------------------------------------------------------------
     # CloudWatch helper

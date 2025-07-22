@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict
 import re  # Added for option text normalisation
 from urllib.parse import unquote_plus  # Added for robust S3 key handling
+import concurrent.futures  # For parallel Ollama requests
 
 # Step-0: lightweight timing helper for micro-metrics
 from utils import timing
@@ -41,7 +42,7 @@ from datetime import datetime
 S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "pdf-question-bank")
 SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "")
 PROCESSING_TIMEOUT = int(os.getenv("PROCESSING_TIMEOUT", "900"))  # seconds
-CONCURRENT_REQUESTS = int(os.getenv("CONCURRENT_REQUESTS", "1"))  # placeholder
+CONCURRENT_REQUESTS = int(os.getenv("CONCURRENT_REQUESTS", "4"))  # default parallelism
 
 # After imports and configuration, insert the mapping constants
 
@@ -244,9 +245,26 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                 subject_meta = parts[2] if len(parts) > 2 else None
                 topic_meta = parts[3] if len(parts) > 3 else None
 
-                for page_num, page_text in enumerate(pages, start=1):
-                    prompt = _build_prompt(page_text)
-                    response_text = call_ollama_mistral(prompt)
+                # Build prompts for all page batches first
+                prompt_items = [(idx, _build_prompt(txt)) for idx, txt in enumerate(pages, start=1)]
+
+                # Execute Ollama calls concurrently to maximise throughput
+                results: dict[int, str] = {}
+                with concurrent.futures.ThreadPoolExecutor(max_workers=CONCURRENT_REQUESTS) as executor:
+                    future_map = {
+                        executor.submit(call_ollama_mistral, prompt): page_num
+                        for page_num, prompt in prompt_items
+                    }
+                    for future in concurrent.futures.as_completed(future_map):
+                        page_num = future_map[future]
+                        try:
+                            results[page_num] = future.result()
+                        except Exception as exc:
+                            logging.warning("Page %d failed: %s", page_num, exc)
+
+                # Process results in deterministic page order
+                for page_num in sorted(results):
+                    response_text = results[page_num]
                     try:
                         q_objects = json.loads(response_text)
                     except json.JSONDecodeError:
@@ -264,7 +282,7 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
                         # Guard against malformed items (e.g. strings or lists)
                         if not isinstance(q_obj, dict):
                             logging.warning(
-                                "Skipping malformed question object on page %d: %s",
+                                "Skipping malformed question object on page %d: %.80s",
                                 page_num,
                                 str(q_obj)[:80],
                             )

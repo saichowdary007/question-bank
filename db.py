@@ -46,6 +46,18 @@ def save_question(data: dict):
     result = collection.insert_one(data)
     return result.inserted_id
 
+
+def save_questions_bulk(docs: list[dict]):
+    """Insert multiple question documents in one operation.
+
+    Returns list of ``ObjectId`` instances for the inserted documents. Does nothing when
+    *docs* is empty.
+    """
+    if not docs:
+        return []
+    result = collection.insert_many(docs, ordered=False)
+    return result.inserted_ids
+
 def get_all_questions():
     """Return all questions, projecting both legacy and new question text fields."""
     return list(collection.find({}, {"question": 1, "question_name": 1, "_id": 0}))

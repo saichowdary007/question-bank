@@ -15,7 +15,7 @@ services:
     environment:
       - OLLAMA_HOST=http://host.docker.internal:11434
       - MONGODB_URI=${MONGO_URI}
-      - CONCURRENT_REQUESTS=2
+      - CONCURRENT_REQUESTS=4
       - OLLAMA_REQUEST_TIMEOUT=600
       - AWS_REGION=${AWS_REGION:-us-east-2}
       - S3_BUCKET_NAME=${S3_BUCKET_NAME:-pdf-question-bank}

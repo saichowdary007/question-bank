@@ -5,6 +5,9 @@ from typing import Optional
 import requests
 import aiohttp
 
+# Connection‑pool & retry helpers
+from tenacity import retry, stop_after_attempt, wait_exponential  # pip install tenacity
+
 # ---------------------------------------------------------------------------
 # Ollama endpoint configuration
 # ---------------------------------------------------------------------------
@@ -41,9 +44,28 @@ OLLAMA_URL = _build_ollama_url()
 # higher values without modifying the source code.
 OLLAMA_REQUEST_TIMEOUT = int(os.getenv("OLLAMA_REQUEST_TIMEOUT", "120"))
 
+# ---------------------------------------------------------------------------
+# Re‑use a single requests.Session so synchronous calls benefit from HTTP
+# keep‑alive.  This avoids ~50 ms TCP/TLS setup cost on every request.
+# ---------------------------------------------------------------------------
+_sync_session: Optional[requests.Session] = None
+
+
+def _get_sync_session() -> requests.Session:
+    """Return a lazily‑initialised shared ``requests`` session."""
+    global _sync_session
+    if _sync_session is None:
+        _sync_session = requests.Session()
+        # Slightly enlarge the default pool size for bursty workloads
+        _sync_session.mount("http://", requests.adapters.HTTPAdapter(pool_maxsize=20))
+        _sync_session.mount("https://", requests.adapters.HTTPAdapter(pool_maxsize=20))
+    return _sync_session
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=8))
 def call_ollama_mistral(prompt: str):
     try:
-        response = requests.post(
+        session = _get_sync_session()
+        response = session.post(
             OLLAMA_URL,
             json={"model": "mistral", "prompt": prompt, "stream": False},
             timeout=OLLAMA_REQUEST_TIMEOUT
@@ -91,3 +113,13 @@ async def call_ollama_mistral_async(prompt: str):
     except Exception as e:
         logging.error(f"❌ Error calling ollama async at {OLLAMA_URL}: {e}")
         raise
+
+# ---------------------------------------------------------------------------
+# Optional cleanup for unit tests / graceful shutdown
+# ---------------------------------------------------------------------------
+def close_sync_session() -> None:
+    """Close the shared ``requests`` session if it exists."""
+    global _sync_session
+    if _sync_session is not None:
+        _sync_session.close()
+        _sync_session = None

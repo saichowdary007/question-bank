@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import torch
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import SentenceTransformer
 
 # ───────────────────────────────────────────────────────────────
 # 0 · CONFIG
@@ -70,16 +70,18 @@ def is_similar_fast(
     # ── Accept both raw strings and ready embeddings ────────────
     if torch.is_tensor(new_q):
         new_emb = new_q
-        # Ensure shape (1 × d) for 0-D or 1-D input tensors
         if new_emb.ndim == 0:
             new_emb = new_emb.unsqueeze(0)
         elif new_emb.ndim == 1:
             new_emb = new_emb.unsqueeze(0)
     else:
-        new_emb = encode(new_q)           # shape (1 × d)
+        new_emb = encode(new_q)  # shape (1 × d)
 
-    # Single vectorised cosine-similarity call (GPU-friendly)
-    return bool((util.cos_sim(new_emb, existing_embs) > threshold).any())
+    # Ensure tensors share the same device/dtype
+    new_emb = new_emb.to(existing_embs)
+    # Fast cosine (dot‑product because embeddings are L2‑normalised)
+    sim_scores = torch.matmul(new_emb, existing_embs.T)  # shape (1 × N)
+    return bool((sim_scores > threshold).any())
 
 # ───────────────────────────────────────────────────────────────
 # 3 · BULK INITIALISER

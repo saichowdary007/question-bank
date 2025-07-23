@@ -18,9 +18,13 @@ from pathlib import Path
 from typing import Any, Dict
 import re  # Added for option text normalisation
 from urllib.parse import unquote_plus  # Added for robust S3 key handling
-import concurrent.futures  # For parallel Ollama requests
+# For parallel Ollama requests
+import concurrent.futures
 import torch
 from sentence_transformers import util
+
+# Fast approximate‑nearest‑neighbour search for embeddings
+import faiss  # pip install faiss‑cpu (or faiss‑gpu)
 
 # Step-0: lightweight timing helper for micro-metrics
 from utils import timing
@@ -110,6 +114,17 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
             if self._existing_questions
             else None
         )
+        # ------------------------------------------------------------------
+        # Build a flat inner‑product FAISS index (exact cosine if vectors are
+        # L2‑normalised by the sentence‑transformer). This collapses the
+        # duplicate check from O(n) / O(m·n) to sub‑millisecond IP probes.
+        # ------------------------------------------------------------------
+        self.faiss_index = None
+        if self._existing_embs is not None and self._existing_embs.numel() > 0:
+            emb_dim = self._existing_embs.shape[1]
+            self.faiss_index = faiss.IndexFlatIP(emb_dim)
+            # FAISS works on NumPy – move to CPU just in case
+            self.faiss_index.add(self._existing_embs.cpu().numpy())
 
     # ------------------------------------------------------------------
     # Public API
@@ -372,11 +387,14 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
         if not question_text:
             return  # skip malformed
 
-        # Duplicate detection (fast embeddings)
+        # Duplicate detection via FAISS (sub‑ms inner‑product search)
         new_emb = dedup_model.encode(question_text, convert_to_tensor=True)
-        if is_similar_fast(new_emb, self._existing_embs):
-            logging.debug("Duplicate question skipped: %.60s", question_text)
-            return
+        if self.faiss_index is not None and self.faiss_index.ntotal > 0:
+            D, _ = self.faiss_index.search(new_emb.cpu().numpy(), k=1)
+            # NB: FAISS returns higher IP for more similar vectors
+            if D[0][0] > SIM_THRESHOLD:
+                logging.debug("Duplicate question skipped: %.60s", question_text)
+                return
 
         # Normalize options
         raw_options = q_obj.get("options", [])
@@ -460,6 +478,8 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
         })
 
         save_question(saved_question)
+        if self.faiss_index is not None:
+            self.faiss_index.add(new_emb.cpu().numpy())
         # Extend local cache for later duplicate detection
         self._existing_questions.append(question_text)
         if self._existing_embs is not None:
@@ -557,11 +577,13 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
 
         new_embs = dedup_model.encode(texts, convert_to_tensor=True)
 
-        if self._existing_embs is None or self._existing_embs.numel() == 0:
-            unique_idx = torch.arange(new_embs.size(0))
+        if self.faiss_index is None or self.faiss_index.ntotal == 0:
+            dup_mask = torch.zeros(new_embs.size(0), dtype=torch.bool)
         else:
-            dup_mask = (util.cos_sim(new_embs, self._existing_embs) > SIM_THRESHOLD).any(dim=1)
-            unique_idx = (~dup_mask).nonzero(as_tuple=True)[0]
+            # Convert to NumPy once for the whole batch
+            D, _ = self.faiss_index.search(new_embs.cpu().numpy(), k=1)
+            dup_mask = torch.tensor(D[:, 0] > SIM_THRESHOLD)
+        unique_idx = (~dup_mask).nonzero(as_tuple=True)[0]
 
         if len(unique_idx) == 0:
             return  # all duplicates
@@ -578,6 +600,13 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
         else:
             self._existing_embs = torch.cat([self._existing_embs, unique_embs], dim=0)
         self._existing_questions.extend([texts[i] for i in unique_idx])
+        if self.faiss_index is not None:
+            self.faiss_index.add(unique_embs.cpu().numpy())
+        else:
+            # First batch – build the index
+            emb_dim = unique_embs.shape[1]
+            self.faiss_index = faiss.IndexFlatIP(emb_dim)
+            self.faiss_index.add(unique_embs.cpu().numpy())
 
     # -----------------------------------------------------------------------------
     # CloudWatch helper

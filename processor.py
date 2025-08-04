@@ -403,7 +403,7 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
             """Remove leading labels like 'A)', 'B.', etc. and trim."""
             if not isinstance(txt, str):
                 return txt  # bail out early for non-strings
-            return re.sub(r"^\s*[A-Da-d][).]\s*", "", txt).strip()
+            return re.sub(r"^\s*[A-Da-d]\s*[-).]\s*", "", txt).strip()
 
         option_map: dict[str, str] = {}
 
@@ -507,7 +507,7 @@ class PDFProcessor:  # noqa: R0902 – keep attributes explicit for clarity
         def _strip_label(txt: str) -> str:
             if not isinstance(txt, str):
                 return txt
-            return re.sub(r"^\s*[A-Da-d][).]\s*", "", txt).strip()
+            return re.sub(r"^\s*[A-Da-d]\s*[-).]\s*", "", txt).strip()
 
         option_map: dict[str, str] = {}
         if isinstance(raw_options, list):
